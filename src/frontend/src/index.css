@@ -1,0 +1,152 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@font-face {
+  font-family: "Plus Jakarta Sans";
+  src: url("/assets/fonts/PlusJakartaSans.woff2") format("woff2");
+  font-weight: 300 700;
+  font-display: swap;
+}
+
+@layer base {
+  :root {
+    --radius: 0.625rem;
+    /* Dark casino palette */
+    --background: 0.06 0 0;
+    --foreground: 0.95 0 0;
+    --card: 0.115 0 0;
+    --card-foreground: 0.95 0 0;
+    --popover: 0.14 0 0;
+    --popover-foreground: 0.95 0 0;
+    --primary: 0.95 0 0;
+    --primary-foreground: 0.06 0 0;
+    --secondary: 0.16 0 0;
+    --secondary-foreground: 0.95 0 0;
+    --muted: 0.15 0 0;
+    --muted-foreground: 0.52 0 0;
+    --accent: 0.2 0 0;
+    --accent-foreground: 0.95 0 0;
+    --destructive: 0.55 0.22 28;
+    --destructive-foreground: 0.95 0 0;
+    --border: 0.2 0 0;
+    --input: 0.15 0 0;
+    --ring: 0.84 0.16 89;
+    /* Yellow CTA */
+    --cta: 0.84 0.16 89;
+    --cta-foreground: 0.1 0 0;
+    /* Game mechanic colors */
+    --game-green: 0.6 0.18 145;
+    --game-red: 0.55 0.22 28;
+    --game-purple: 0.48 0.22 296;
+    --game-gold: 0.84 0.16 89;
+    --chart-1: 0.6 0.18 145;
+    --chart-2: 0.55 0.22 28;
+    --chart-3: 0.48 0.22 296;
+    --chart-4: 0.84 0.16 89;
+    --chart-5: 0.52 0 0;
+    --sidebar: 0.1 0 0;
+    --sidebar-foreground: 0.95 0 0;
+    --sidebar-primary: 0.95 0 0;
+    --sidebar-primary-foreground: 0.06 0 0;
+    --sidebar-accent: 0.16 0 0;
+    --sidebar-accent-foreground: 0.95 0 0;
+    --sidebar-border: 0.2 0 0;
+    --sidebar-ring: 0.84 0.16 89;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: "Plus Jakarta Sans", "Inter", system-ui, sans-serif;
+    background: linear-gradient(
+      180deg,
+      oklch(0.06 0 0) 0%,
+      oklch(0.08 0 0) 60%,
+      oklch(0.07 0 0) 100%
+    );
+    min-height: 100vh;
+  }
+}
+
+@layer utilities {
+  .glow-green {
+    box-shadow: 0 0 18px oklch(var(--game-green) / 0.5), 0 0 40px
+      oklch(var(--game-green) / 0.2);
+  }
+  .glow-red {
+    box-shadow: 0 0 18px oklch(var(--game-red) / 0.5), 0 0 40px
+      oklch(var(--game-red) / 0.2);
+  }
+  .glow-purple {
+    box-shadow: 0 0 18px oklch(var(--game-purple) / 0.5), 0 0 40px
+      oklch(var(--game-purple) / 0.2);
+  }
+  .glow-cta {
+    box-shadow: 0 0 16px oklch(var(--cta) / 0.4);
+  }
+  .card-surface {
+    background: linear-gradient(145deg, oklch(0.125 0 0), oklch(0.155 0 0));
+    border: 1px solid oklch(var(--border));
+    border-radius: var(--radius);
+  }
+  .card-surface-elevated {
+    background: linear-gradient(145deg, oklch(0.14 0 0), oklch(0.17 0 0));
+    border: 1px solid oklch(0.23 0 0);
+    border-radius: var(--radius);
+  }
+}
+
+@keyframes countdown-flash {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+@keyframes win-flash {
+  0% {
+    transform: scale(1);
+  }
+  25% {
+    transform: scale(1.15);
+  }
+  50% {
+    transform: scale(1);
+  }
+  75% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes slide-up {
+  from {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-countdown-flash {
+  animation: countdown-flash 1s ease-in-out infinite;
+}
+.animate-win-flash {
+  animation: win-flash 0.8s ease-in-out;
+}
+.animate-slide-up {
+  animation: slide-up 0.3s ease-out;
+}

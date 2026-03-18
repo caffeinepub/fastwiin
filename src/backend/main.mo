@@ -1,0 +1,533 @@
+import Map "mo:core/Map";
+import List "mo:core/List";
+import Time "mo:core/Time";
+import Text "mo:core/Text";
+import Nat "mo:core/Nat";
+import Runtime "mo:core/Runtime";
+import Float "mo:core/Float";
+import Random "mo:core/Random";
+import Principal "mo:core/Principal";
+import Array "mo:core/Array";
+
+
+import MixinAuthorization "authorization/MixinAuthorization";
+import AccessControl "authorization/access-control";
+
+actor {
+  let accessControlState = AccessControl.initState();
+  include MixinAuthorization(accessControlState);
+
+  // ===== MIGRATION: Explicitly retain old stable variables to prevent M0169 errors =====
+  type _OldGameStatus = { #waiting; #active; #finished; #flying; #crashed };
+  type _OldUserProfile = { name : Text };
+  type _OldColorPredictionBet = { amount : Float; color : Color };
+  type _OldRoundResult = { id : Nat; result : Color; timestamp : Time.Time };
+  type _OldColorPredictionRound = {
+    id : Nat;
+    startTime : Time.Time;
+    status : _OldGameStatus;
+    winningColor : ?Color;
+  };
+  type _OldAviatorBet = {
+    amount : Float;
+    placedAtMultiplier : Float;
+    cashOutMultiplier : ?Float;
+  };
+  type _OldAviatorRoundResult = {
+    roundId : Nat;
+    crashMultiplier : Float;
+    timestamp : Time.Time;
+  };
+  type _OldAviatorRound = {
+    id : Nat;
+    startTime : Time.Time;
+    status : _OldGameStatus;
+    crashMultiplier : ?Float;
+  };
+
+  let userProfiles = Map.empty<Principal, _OldUserProfile>();
+  let colorPredictionBets = Map.empty<Principal, _OldColorPredictionBet>();
+  let storedColorPredictionRounds = List.empty<_OldRoundResult>();
+  var currentColorPredictionRound : _OldColorPredictionRound = {
+    id = 0; startTime = 0; status = #waiting; winningColor = null
+  };
+  let aviatorBets = Map.empty<Principal, _OldAviatorBet>();
+  let storedAviatorRounds = List.empty<_OldAviatorRoundResult>();
+  var currentAviatorRound : _OldAviatorRound = {
+    id = 0; startTime = 0; status = #waiting; crashMultiplier = null
+  };
+  // ===== END MIGRATION =====
+
+  // ===== USER PROFILE =====
+  public type UserProfile = {
+    name : Text;
+    phone : Text;
+  };
+
+  let newUserProfiles = Map.empty<Principal, UserProfile>();
+
+  // ===== AUTH =====
+  public type PhoneAccount = {
+    phone : Text;
+    otpCode : Text;
+    otpVerified : Bool;
+    password : Text;
+    registered : Bool;
+  };
+
+  public type AuthStatus = {
+    registered : Bool;
+    otpVerified : Bool;
+    phone : Text;
+  };
+
+  let phoneAccounts = Map.empty<Principal, PhoneAccount>();
+
+  // Helper: check if caller is a registered user
+  func isRegisteredUser(caller : Principal) : Bool {
+    switch (phoneAccounts.get(caller)) {
+      case (?acc) { acc.registered };
+      case null { false };
+    };
+  };
+
+  // Public - guests need to register
+  public shared ({ caller }) func requestOtp(phone : Text) : async Text {
+    let rng = Random.crypto();
+    let n = await* rng.natRange(100000, 999999);
+    let otp = n.toText();
+    let existing : PhoneAccount = switch (phoneAccounts.get(caller)) {
+      case (?acc) { { acc with phone; otpCode = otp; otpVerified = false } };
+      case null {
+        { phone; otpCode = otp; otpVerified = false; password = ""; registered = false };
+      };
+    };
+    phoneAccounts.add(caller, existing);
+    otp;
+  };
+
+  // Public - guests need to verify OTP
+  public shared ({ caller }) func verifyOtp(otp : Text) : async Bool {
+    switch (phoneAccounts.get(caller)) {
+      case (?acc) {
+        if (acc.otpCode == otp) {
+          phoneAccounts.add(caller, { acc with otpVerified = true });
+          true;
+        } else { false };
+      };
+      case null { false };
+    };
+  };
+
+  // Public - guests need to set password to complete registration
+  public shared ({ caller }) func setPassword(password : Text) : async Bool {
+    if (password.size() < 8) {
+      Runtime.trap("Password must be at least 8 characters");
+    };
+    switch (phoneAccounts.get(caller)) {
+      case (?acc) {
+        if (not acc.otpVerified) { return false };
+        if (not acc.registered) {
+          // Credit starting balance
+          switch (balances.get(caller)) {
+            case null { balances.add(caller, 10.0) };
+            case _ {};
+          };
+          // Initialize user profile
+          newUserProfiles.add(caller, { name = ""; phone = acc.phone });
+        };
+        phoneAccounts.add(caller, { acc with password; registered = true });
+        true;
+      };
+      case null { false };
+    };
+  };
+
+  // Caller can view their own auth status
+  public query ({ caller }) func getAuthStatus() : async AuthStatus {
+    switch (phoneAccounts.get(caller)) {
+      case (?acc) { { registered = acc.registered; otpVerified = acc.otpVerified; phone = acc.phone } };
+      case null { { registered = false; otpVerified = false; phone = "" } };
+    };
+  };
+
+  public query ({ caller }) func getCallerUserProfile() : async ?UserProfile {
+    if (not isRegisteredUser(caller)) {
+      Runtime.trap("Unauthorized: Only registered users can view profiles");
+    };
+    newUserProfiles.get(caller);
+  };
+
+  public query ({ caller }) func getUserProfile(user : Principal) : async ?UserProfile {
+    if (caller != user and not AccessControl.isAdmin(accessControlState, caller)) {
+      Runtime.trap("Unauthorized: Can only view your own profile");
+    };
+    newUserProfiles.get(user);
+  };
+
+  public shared ({ caller }) func saveCallerUserProfile(profile : UserProfile) : async () {
+    if (not isRegisteredUser(caller)) {
+      Runtime.trap("Unauthorized: Only registered users can save profiles");
+    };
+    newUserProfiles.add(caller, profile);
+  };
+
+  // Allow registered users to change their own password
+  public shared ({ caller }) func changePassword(oldPassword : Text, newPassword : Text) : async Bool {
+    if (not isRegisteredUser(caller)) {
+      Runtime.trap("Unauthorized: Only registered users can change passwords");
+    };
+    if (newPassword.size() < 8) {
+      Runtime.trap("New password must be at least 8 characters");
+    };
+    switch (phoneAccounts.get(caller)) {
+      case (?acc) {
+        if (acc.password != oldPassword) { return false };
+        phoneAccounts.add(caller, { acc with password = newPassword });
+        true;
+      };
+      case null { false };
+    };
+  };
+
+  // ===== BALANCE =====
+  let balances = Map.empty<Principal, Float>();
+
+  public query ({ caller }) func getBalance() : async Float {
+    if (not isRegisteredUser(caller)) {
+      Runtime.trap("Unauthorized: Only registered users can view balance");
+    };
+    switch (balances.get(caller)) {
+      case (?b) { b };
+      case null { 0.0 };
+    };
+  };
+
+  public shared ({ caller }) func deposit(amount : Float) : async () {
+    if (not isRegisteredUser(caller)) {
+      Runtime.trap("Unauthorized: Only registered users can deposit");
+    };
+    if (amount <= 0.0) { Runtime.trap("Amount must be positive") };
+    let cur = switch (balances.get(caller)) { case (?b) b; case null 0.0 };
+    let next = cur + amount;
+    if (next > 10000.0) { Runtime.trap("Balance would exceed maximum of Rs10000") };
+    balances.add(caller, next);
+  };
+
+  // ===== GAME TYPES =====
+  public type Color = { #green; #red; #purple };
+  public type BetTarget = { #color : Color; #number : Nat };
+
+  public type Bet = {
+    target : BetTarget;
+    amount : Float;
+    roundId : Nat;
+    mode : Text;
+  };
+
+  public type RoundStatus = { #open; #locked; #settled };
+
+  public type Round = {
+    roundId : Nat;
+    mode : Text;
+    startTimestamp : Time.Time;
+    status : RoundStatus;
+    winningColor : ?Color;
+    winningNumber : ?Nat;
+  };
+
+  public type RoundResult = {
+    roundId : Nat;
+    mode : Text;
+    winningColor : Color;
+    winningNumber : Nat;
+    timestamp : Time.Time;
+  };
+
+  public type GameState = {
+    currentRound : Round;
+    lastResults : [RoundResult];
+  };
+
+  // ===== GAME STATE =====
+  var round30s : Round = { roundId = 1; mode = "30s"; startTimestamp = Time.now(); status = #open; winningColor = null; winningNumber = null };
+  var round1m  : Round = { roundId = 1; mode = "1m";  startTimestamp = Time.now(); status = #open; winningColor = null; winningNumber = null };
+  var round3m  : Round = { roundId = 1; mode = "3m";  startTimestamp = Time.now(); status = #open; winningColor = null; winningNumber = null };
+
+  let results30s = List.empty<RoundResult>();
+  let results1m  = List.empty<RoundResult>();
+  let results3m  = List.empty<RoundResult>();
+
+  let allBets = Map.empty<Text, [Bet]>();
+  let roundUsers = Map.empty<Text, List.List<Principal>>();
+
+  func betKey(mode : Text, roundId : Nat, user : Principal) : Text {
+    mode # "~" # roundId.toText() # "~" # user.toText();
+  };
+
+  func roundKey(mode : Text, roundId : Nat) : Text {
+    mode # "~" # roundId.toText();
+  };
+
+  func getRound(mode : Text) : Round {
+    if (mode == "30s") round30s
+    else if (mode == "1m") round1m
+    else round3m;
+  };
+
+  func setRound(mode : Text, r : Round) {
+    if (mode == "30s") { round30s := r }
+    else if (mode == "1m") { round1m := r }
+    else { round3m := r };
+  };
+
+  func getResultsList(mode : Text) : List.List<RoundResult> {
+    if (mode == "30s") results30s
+    else if (mode == "1m") results1m
+    else results3m;
+  };
+
+  // New color mapping:
+  // 1,3,7,9 = green | 2,4,6,8 = red | 0,5 = purple (split numbers)
+  func numberToColor(n : Nat) : Color {
+    if (n == 1 or n == 3 or n == 7 or n == 9) { #green }
+    else if (n == 2 or n == 4 or n == 6 or n == 8) { #red }
+    else { #purple }; // 0 and 5 are split (primary display color = purple)
+  };
+
+  // Which numbers does a color bet cover (including split numbers)
+  // Green: 1,3,5,7,9 (5 covers half - green+purple)
+  // Red: 0,2,4,6,8 (0 covers half - red+purple)
+  // Purple: 0,5 (both are split numbers)
+  func colorCoversNumber(c : Color, n : Nat) : Bool {
+    switch (c) {
+      case (#green) { n == 1 or n == 3 or n == 5 or n == 7 or n == 9 };
+      case (#red) { n == 0 or n == 2 or n == 4 or n == 6 or n == 8 };
+      case (#purple) { n == 0 or n == 5 };
+    };
+  };
+
+  // How many numbers each color covers (for distribution weight)
+  func colorCoverage(c : Color) : Float {
+    switch (c) {
+      case (#green) { 5.0 };
+      case (#red) { 5.0 };
+      case (#purple) { 2.0 };
+    };
+  };
+
+  // Payout multipliers for normal (non-split) numbers
+  func colorPayout(c : Color) : Float {
+    switch (c) {
+      case (#purple) { 5.0 };
+      case _ { 2.0 };
+    };
+  };
+
+  // ===== BETTING =====
+  public shared ({ caller }) func placeBet(mode : Text, target : BetTarget, amount : Float) : async () {
+    if (not isRegisteredUser(caller)) {
+      Runtime.trap("Unauthorized: Only registered users can place bets");
+    };
+    if (amount < 10.0) { Runtime.trap("Minimum bet is Rs10") };
+    let round = getRound(mode);
+    if (round.status != #open) { Runtime.trap("Betting is closed for this round") };
+    let bal = switch (balances.get(caller)) { case (?b) b; case null 0.0 };
+    if (bal < amount) { Runtime.trap("Insufficient balance") };
+    balances.add(caller, bal - amount);
+    let key = betKey(mode, round.roundId, caller);
+    let existing = switch (allBets.get(key)) { case (?b) b; case null [] };
+    let newBet : Bet = { target; amount; roundId = round.roundId; mode };
+    allBets.add(key, Array.tabulate<Bet>(existing.size() + 1, func(i) {
+      if (i < existing.size()) existing[i] else newBet;
+    }));
+    let rk = roundKey(mode, round.roundId);
+    let users = switch (roundUsers.get(rk)) { case (?u) u; case null List.empty<Principal>() };
+    var alreadyTracked = false;
+    for (p in users.toVarArray().toArray().vals()) { if (p == caller) { alreadyTracked := true } };
+    if (not alreadyTracked) {
+      users.add(caller);
+      roundUsers.add(rk, users);
+    };
+  };
+
+  // Any registered user can lock a round (idempotent - only locks if open)
+  public shared ({ caller }) func lockRound(mode : Text) : async () {
+    if (not isRegisteredUser(caller)) {
+      Runtime.trap("Unauthorized: Must be registered to lock rounds");
+    };
+    let round = getRound(mode);
+    if (round.status == #open) {
+      setRound(mode, { round with status = #locked });
+    };
+  };
+
+  // Any registered user can settle a round (idempotent - only settles once per round)
+  public shared ({ caller }) func settleRound(mode : Text) : async RoundResult {
+    if (not isRegisteredUser(caller)) {
+      Runtime.trap("Unauthorized: Must be registered to settle rounds");
+    };
+    let round = getRound(mode);
+    if (round.status == #settled) { Runtime.trap("Round already settled") };
+
+    var t0 : Float = 0.0; var t1 : Float = 0.0; var t2 : Float = 0.0;
+    var t3 : Float = 0.0; var t4 : Float = 0.0; var t5 : Float = 0.0;
+    var t6 : Float = 0.0; var t7 : Float = 0.0; var t8 : Float = 0.0;
+    var t9 : Float = 0.0;
+
+    func addToTotals(n : Nat, v : Float) {
+      if      (n == 0) { t0 := t0 + v }
+      else if (n == 1) { t1 := t1 + v }
+      else if (n == 2) { t2 := t2 + v }
+      else if (n == 3) { t3 := t3 + v }
+      else if (n == 4) { t4 := t4 + v }
+      else if (n == 5) { t5 := t5 + v }
+      else if (n == 6) { t6 := t6 + v }
+      else if (n == 7) { t7 := t7 + v }
+      else if (n == 8) { t8 := t8 + v }
+      else if (n == 9) { t9 := t9 + v };
+    };
+
+    func getTotal(n : Nat) : Float {
+      if      (n == 0) t0 else if (n == 1) t1 else if (n == 2) t2
+      else if (n == 3) t3 else if (n == 4) t4 else if (n == 5) t5
+      else if (n == 6) t6 else if (n == 7) t7 else if (n == 8) t8
+      else t9;
+    };
+
+    let rk = roundKey(mode, round.roundId);
+    let users = switch (roundUsers.get(rk)) { case (?u) u.toVarArray().toArray(); case null [] };
+
+    for (user in users.vals()) {
+      let key = betKey(mode, round.roundId, user);
+      switch (allBets.get(key)) {
+        case (?bets) {
+          for (bet in bets.vals()) {
+            switch (bet.target) {
+              case (#number(n)) { addToTotals(n, bet.amount) };
+              case (#color(c)) {
+                let cnt = colorCoverage(c);
+                for (i in Nat.range(0, 10)) {
+                  if (colorCoversNumber(c, i)) { addToTotals(i, bet.amount / cnt) };
+                };
+              };
+            };
+          };
+        };
+        case null {};
+      };
+    };
+
+    // Find minimum bet total
+    var minVal : Float = getTotal(0);
+    for (i in Nat.range(1, 10)) {
+      let v = getTotal(i);
+      if (v < minVal) { minVal := v };
+    };
+
+    // Collect ALL numbers tied at the minimum
+    var tiedCount : Nat = 0;
+    for (i in Nat.range(0, 10)) {
+      if (getTotal(i) == minVal) { tiedCount := tiedCount + 1 };
+    };
+
+    // Pick a random index among tied numbers
+    let rng = Random.crypto();
+    let pickIdx = await* rng.natRange(0, tiedCount);
+
+    var winNum : Nat = 0;
+    var seen : Nat = 0;
+    var found = false;
+    for (i in Nat.range(0, 10)) {
+      if (not found and getTotal(i) == minVal) {
+        if (seen == pickIdx) { winNum := i; found := true };
+        seen := seen + 1;
+      };
+    };
+
+    let winColor = numberToColor(winNum);
+
+    // Payout loop with split-number logic
+    // 0 = half purple+red: purple gets 2.5x, red gets 1x
+    // 5 = half green+purple: green gets 1x, purple gets 2.5x
+    for (user in users.vals()) {
+      let key = betKey(mode, round.roundId, user);
+      switch (allBets.get(key)) {
+        case (?bets) {
+          var winnings : Float = 0.0;
+          for (bet in bets.vals()) {
+            switch (bet.target) {
+              case (#color(c)) {
+                let payout : Float = if (winNum == 0) {
+                  // 0 = half purple+red
+                  if (c == #purple) { bet.amount * 2.5 }
+                  else if (c == #red) { bet.amount * 1.0 }
+                  else { 0.0 };
+                } else if (winNum == 5) {
+                  // 5 = half green+purple
+                  if (c == #green) { bet.amount * 1.0 }
+                  else if (c == #purple) { bet.amount * 2.5 }
+                  else { 0.0 };
+                } else {
+                  // Normal number
+                  if (c == winColor) { bet.amount * colorPayout(c) }
+                  else { 0.0 };
+                };
+                winnings := winnings + payout;
+              };
+              case (#number(n)) {
+                if (n == winNum) { winnings := winnings + bet.amount * 9.0 };
+              };
+            };
+          };
+          if (winnings > 0.0) {
+            let curBal = switch (balances.get(user)) { case (?b) b; case null 0.0 };
+            balances.add(user, Float.min(curBal + winnings, 10000.0));
+          };
+        };
+        case null {};
+      };
+    };
+
+    let result : RoundResult = {
+      roundId = round.roundId;
+      mode;
+      winningColor = winColor;
+      winningNumber = winNum;
+      timestamp = Time.now();
+    };
+
+    let resList = getResultsList(mode);
+    resList.add(result);
+    while (resList.size() > 20) { ignore resList.removeLast() };
+
+    setRound(mode, {
+      roundId = round.roundId + 1;
+      mode;
+      startTimestamp = Time.now();
+      status = #open;
+      winningColor = null;
+      winningNumber = null;
+    });
+
+    result;
+  };
+
+  // ===== QUERIES =====
+  public query ({ caller }) func getGameState(mode : Text) : async GameState {
+    let round = getRound(mode);
+    let resList = getResultsList(mode);
+    {
+      currentRound = round;
+      lastResults = resList.toVarArray().toArray();
+    };
+  };
+
+  public query ({ caller }) func getUserBets(mode : Text, roundId : Nat) : async [Bet] {
+    if (not isRegisteredUser(caller)) {
+      Runtime.trap("Unauthorized: Only registered users can view bet history");
+    };
+    let key = betKey(mode, roundId, caller);
+    switch (allBets.get(key)) { case (?b) b; case null [] };
+  };
+};
