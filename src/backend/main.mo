@@ -83,6 +83,18 @@ actor {
 
   let phoneAccounts = Map.empty<Principal, PhoneAccount>();
 
+  // ===== PHONE-KEYED MAPS (for phone-based login) =====
+  // Keep original shape to maintain upgrade compatibility
+  type PhoneRecord = { password : Text; registered : Bool };
+  let phoneIndex = Map.empty<Text, PhoneRecord>();
+
+  // Separate maps for new admin fields (avoids PhoneRecord upgrade incompatibility)
+  let phoneBlocked = Map.empty<Text, Bool>();
+  let phoneRegisteredAt = Map.empty<Text, Int>();
+
+  // phone -> login OTP
+  let phoneLoginOtps = Map.empty<Text, Text>();
+
   // Helper: check if caller is a registered user
   func isRegisteredUser(caller : Principal) : Bool {
     switch (phoneAccounts.get(caller)) {
@@ -103,10 +115,10 @@ actor {
       };
     };
     phoneAccounts.add(caller, existing);
+    phoneLoginOtps.add(phone, otp);
     otp;
   };
 
-  // Public - guests need to verify OTP
   public shared ({ caller }) func verifyOtp(otp : Text) : async Bool {
     switch (phoneAccounts.get(caller)) {
       case (?acc) {
@@ -119,7 +131,6 @@ actor {
     };
   };
 
-  // Public - guests need to set password to complete registration
   public shared ({ caller }) func setPassword(password : Text) : async Bool {
     if (password.size() < 8) {
       Runtime.trap("Password must be at least 8 characters");
@@ -128,26 +139,69 @@ actor {
       case (?acc) {
         if (not acc.otpVerified) { return false };
         if (not acc.registered) {
-          // Credit starting balance
           switch (balances.get(caller)) {
             case null { balances.add(caller, 10.0) };
             case _ {};
           };
-          // Initialize user profile
+          switch (phoneBalances.get(acc.phone)) {
+            case null { phoneBalances.add(acc.phone, 10.0) };
+            case _ {};
+          };
           newUserProfiles.add(caller, { name = ""; phone = acc.phone });
+          // Record registration time (only set once)
+          switch (phoneRegisteredAt.get(acc.phone)) {
+            case null { phoneRegisteredAt.add(acc.phone, Time.now()) };
+            case _ {};
+          };
         };
         phoneAccounts.add(caller, { acc with password; registered = true });
+        phoneIndex.add(acc.phone, { password; registered = true });
         true;
       };
       case null { false };
     };
   };
 
-  // Caller can view their own auth status
+  public func requestLoginOtp(phone : Text) : async ?Text {
+    switch (phoneIndex.get(phone)) {
+      case (?_) {
+        let rng = Random.crypto();
+        let n = await* rng.natRange(100000, 999999);
+        let otp = n.toText();
+        phoneLoginOtps.add(phone, otp);
+        ?otp;
+      };
+      case null { null };
+    };
+  };
+
+  public func verifyLoginWithOtp(phone : Text, otp : Text, password : Text) : async Bool {
+    // Check if user is blocked
+    let blocked = switch (phoneBlocked.get(phone)) { case (?b) b; case null false };
+    if (blocked) { return false };
+    switch (phoneLoginOtps.get(phone)) {
+      case (?storedOtp) {
+        if (storedOtp != otp) { return false };
+        switch (phoneIndex.get(phone)) {
+          case (?rec) { rec.password == password };
+          case null { false };
+        };
+      };
+      case null { false };
+    };
+  };
+
   public query ({ caller }) func getAuthStatus() : async AuthStatus {
     switch (phoneAccounts.get(caller)) {
       case (?acc) { { registered = acc.registered; otpVerified = acc.otpVerified; phone = acc.phone } };
       case null { { registered = false; otpVerified = false; phone = "" } };
+    };
+  };
+
+  public query func isPhoneRegistered(phone : Text) : async Bool {
+    switch (phoneIndex.get(phone)) {
+      case (?rec) { rec.registered };
+      case null { false };
     };
   };
 
@@ -172,7 +226,6 @@ actor {
     newUserProfiles.add(caller, profile);
   };
 
-  // Allow registered users to change their own password
   public shared ({ caller }) func changePassword(oldPassword : Text, newPassword : Text) : async Bool {
     if (not isRegisteredUser(caller)) {
       Runtime.trap("Unauthorized: Only registered users can change passwords");
@@ -184,6 +237,7 @@ actor {
       case (?acc) {
         if (acc.password != oldPassword) { return false };
         phoneAccounts.add(caller, { acc with password = newPassword });
+        phoneIndex.add(acc.phone, { password = newPassword; registered = true });
         true;
       };
       case null { false };
@@ -192,12 +246,20 @@ actor {
 
   // ===== BALANCE =====
   let balances = Map.empty<Principal, Float>();
+  let phoneBalances = Map.empty<Text, Float>();
 
   public query ({ caller }) func getBalance() : async Float {
     if (not isRegisteredUser(caller)) {
       Runtime.trap("Unauthorized: Only registered users can view balance");
     };
     switch (balances.get(caller)) {
+      case (?b) { b };
+      case null { 0.0 };
+    };
+  };
+
+  public query func getBalanceByPhone(phone : Text) : async Float {
+    switch (phoneBalances.get(phone)) {
       case (?b) { b };
       case null { 0.0 };
     };
@@ -212,6 +274,192 @@ actor {
     let next = cur + amount;
     if (next > 10000.0) { Runtime.trap("Balance would exceed maximum of Rs10000") };
     balances.add(caller, next);
+  };
+
+  // ===== WITHDRAWAL SYSTEM =====
+  public type WithdrawalStatus = { #pending; #approved; #rejected };
+  public type WithdrawalRecord = {
+    id : Text;
+    phone : Text;
+    amount : Float;
+    upiId : Text;
+    status : WithdrawalStatus;
+    timestamp : Int;
+  };
+
+  let withdrawals = Map.empty<Text, WithdrawalRecord>();
+  var withdrawalCounter : Nat = 0;
+
+  public func requestWithdrawal(phone : Text, amount : Float, upiId : Text) : async Text {
+    if (amount <= 0.0) { Runtime.trap("Amount must be positive") };
+    let curBal = switch (phoneBalances.get(phone)) { case (?b) b; case null 0.0 };
+    if (curBal < amount) { Runtime.trap("Insufficient balance") };
+    phoneBalances.add(phone, curBal - amount);
+    withdrawalCounter := withdrawalCounter + 1;
+    let id = "WD" # withdrawalCounter.toText();
+    let record : WithdrawalRecord = {
+      id; phone; amount; upiId;
+      status = #pending;
+      timestamp = Time.now();
+    };
+    withdrawals.add(id, record);
+    id;
+  };
+
+  public func approveWithdrawal(id : Text) : async Bool {
+    switch (withdrawals.get(id)) {
+      case (?rec) {
+        if (rec.status != #pending) { return false };
+        withdrawals.add(id, { rec with status = #approved });
+        true;
+      };
+      case null { false };
+    };
+  };
+
+  public func rejectWithdrawal(id : Text) : async Bool {
+    switch (withdrawals.get(id)) {
+      case (?rec) {
+        if (rec.status != #pending) { return false };
+        let curBal = switch (phoneBalances.get(rec.phone)) { case (?b) b; case null 0.0 };
+        phoneBalances.add(rec.phone, curBal + rec.amount);
+        withdrawals.add(id, { rec with status = #rejected });
+        true;
+      };
+      case null { false };
+    };
+  };
+
+  public query func getAllWithdrawals() : async [WithdrawalRecord] {
+    let result = List.empty<WithdrawalRecord>();
+    for ((_, rec) in withdrawals.entries()) {
+      result.add(rec);
+    };
+    result.toVarArray().toArray();
+  };
+
+  public query func getMyWithdrawals(phone : Text) : async [WithdrawalRecord] {
+    let result = List.empty<WithdrawalRecord>();
+    for ((_, rec) in withdrawals.entries()) {
+      if (rec.phone == phone) { result.add(rec) };
+    };
+    result.toVarArray().toArray();
+  };
+
+  // ===== DEPOSIT SYSTEM =====
+  public type DepositStatus = { #pending; #approved; #rejected };
+  public type DepositRecord = {
+    id : Text;
+    phone : Text;
+    amount : Float;
+    upiRef : Text;
+    status : DepositStatus;
+    timestamp : Int;
+  };
+
+  let deposits = Map.empty<Text, DepositRecord>();
+  var depositCounter : Nat = 0;
+
+  public func requestDeposit(phone : Text, amount : Float, upiRef : Text) : async Text {
+    if (amount <= 0.0) { Runtime.trap("Amount must be positive") };
+    depositCounter := depositCounter + 1;
+    let id = "DP" # depositCounter.toText();
+    let record : DepositRecord = {
+      id; phone; amount; upiRef;
+      status = #pending;
+      timestamp = Time.now();
+    };
+    deposits.add(id, record);
+    id;
+  };
+
+  public func approveDeposit(id : Text) : async Bool {
+    switch (deposits.get(id)) {
+      case (?rec) {
+        if (rec.status != #pending) { return false };
+        let curBal = switch (phoneBalances.get(rec.phone)) { case (?b) b; case null 0.0 };
+        phoneBalances.add(rec.phone, curBal + rec.amount);
+        deposits.add(id, { rec with status = #approved });
+        true;
+      };
+      case null { false };
+    };
+  };
+
+  public func rejectDeposit(id : Text) : async Bool {
+    switch (deposits.get(id)) {
+      case (?rec) {
+        if (rec.status != #pending) { return false };
+        deposits.add(id, { rec with status = #rejected });
+        true;
+      };
+      case null { false };
+    };
+  };
+
+  public query func getAllDeposits() : async [DepositRecord] {
+    let result = List.empty<DepositRecord>();
+    for ((_, rec) in deposits.entries()) {
+      result.add(rec);
+    };
+    result.toVarArray().toArray();
+  };
+
+  public query func getMyDeposits(phone : Text) : async [DepositRecord] {
+    let result = List.empty<DepositRecord>();
+    for ((_, rec) in deposits.entries()) {
+      if (rec.phone == phone) { result.add(rec) };
+    };
+    result.toVarArray().toArray();
+  };
+
+  // ===== ADMIN USER MANAGEMENT =====
+  public type UserSummary = {
+    phone : Text;
+    balance : Float;
+    registeredAt : Int;
+    blocked : Bool;
+  };
+
+  public query func getAllUsers() : async [UserSummary] {
+    let result = List.empty<UserSummary>();
+    for ((phone, _) in phoneIndex.entries()) {
+      let bal = switch (phoneBalances.get(phone)) { case (?b) b; case null 0.0 };
+      let blocked = switch (phoneBlocked.get(phone)) { case (?b) b; case null false };
+      let regAt = switch (phoneRegisteredAt.get(phone)) { case (?t) t; case null 0 };
+      result.add({ phone; balance = bal; registeredAt = regAt; blocked });
+    };
+    result.toVarArray().toArray();
+  };
+
+  public func blockUser(phone : Text) : async Bool {
+    switch (phoneIndex.get(phone)) {
+      case (?_) {
+        phoneBlocked.add(phone, true);
+        true;
+      };
+      case null { false };
+    };
+  };
+
+  public func unblockUser(phone : Text) : async Bool {
+    switch (phoneIndex.get(phone)) {
+      case (?_) {
+        phoneBlocked.add(phone, false);
+        true;
+      };
+      case null { false };
+    };
+  };
+
+  public func adjustBalance(phone : Text, newBalance : Float) : async Bool {
+    switch (phoneIndex.get(phone)) {
+      case (?_) {
+        phoneBalances.add(phone, newBalance);
+        true;
+      };
+      case null { false };
+    };
   };
 
   // ===== GAME TYPES =====
@@ -287,18 +535,12 @@ actor {
     else results3m;
   };
 
-  // New color mapping:
-  // 1,3,7,9 = green | 2,4,6,8 = red | 0,5 = purple (split numbers)
   func numberToColor(n : Nat) : Color {
     if (n == 1 or n == 3 or n == 7 or n == 9) { #green }
     else if (n == 2 or n == 4 or n == 6 or n == 8) { #red }
-    else { #purple }; // 0 and 5 are split (primary display color = purple)
+    else { #purple };
   };
 
-  // Which numbers does a color bet cover (including split numbers)
-  // Green: 1,3,5,7,9 (5 covers half - green+purple)
-  // Red: 0,2,4,6,8 (0 covers half - red+purple)
-  // Purple: 0,5 (both are split numbers)
   func colorCoversNumber(c : Color, n : Nat) : Bool {
     switch (c) {
       case (#green) { n == 1 or n == 3 or n == 5 or n == 7 or n == 9 };
@@ -307,7 +549,6 @@ actor {
     };
   };
 
-  // How many numbers each color covers (for distribution weight)
   func colorCoverage(c : Color) : Float {
     switch (c) {
       case (#green) { 5.0 };
@@ -316,7 +557,6 @@ actor {
     };
   };
 
-  // Payout multipliers for normal (non-split) numbers
   func colorPayout(c : Color) : Float {
     switch (c) {
       case (#purple) { 5.0 };
@@ -351,7 +591,6 @@ actor {
     };
   };
 
-  // Any registered user can lock a round (idempotent - only locks if open)
   public shared ({ caller }) func lockRound(mode : Text) : async () {
     if (not isRegisteredUser(caller)) {
       Runtime.trap("Unauthorized: Must be registered to lock rounds");
@@ -362,7 +601,6 @@ actor {
     };
   };
 
-  // Any registered user can settle a round (idempotent - only settles once per round)
   public shared ({ caller }) func settleRound(mode : Text) : async RoundResult {
     if (not isRegisteredUser(caller)) {
       Runtime.trap("Unauthorized: Must be registered to settle rounds");
@@ -418,20 +656,17 @@ actor {
       };
     };
 
-    // Find minimum bet total
     var minVal : Float = getTotal(0);
     for (i in Nat.range(1, 10)) {
       let v = getTotal(i);
       if (v < minVal) { minVal := v };
     };
 
-    // Collect ALL numbers tied at the minimum
     var tiedCount : Nat = 0;
     for (i in Nat.range(0, 10)) {
       if (getTotal(i) == minVal) { tiedCount := tiedCount + 1 };
     };
 
-    // Pick a random index among tied numbers
     let rng = Random.crypto();
     let pickIdx = await* rng.natRange(0, tiedCount);
 
@@ -447,9 +682,6 @@ actor {
 
     let winColor = numberToColor(winNum);
 
-    // Payout loop with split-number logic
-    // 0 = half purple+red: purple gets 2.5x, red gets 1x
-    // 5 = half green+purple: green gets 1x, purple gets 2.5x
     for (user in users.vals()) {
       let key = betKey(mode, round.roundId, user);
       switch (allBets.get(key)) {
@@ -459,17 +691,14 @@ actor {
             switch (bet.target) {
               case (#color(c)) {
                 let payout : Float = if (winNum == 0) {
-                  // 0 = half purple+red
                   if (c == #purple) { bet.amount * 2.5 }
                   else if (c == #red) { bet.amount * 1.0 }
                   else { 0.0 };
                 } else if (winNum == 5) {
-                  // 5 = half green+purple
                   if (c == #green) { bet.amount * 1.0 }
                   else if (c == #purple) { bet.amount * 2.5 }
                   else { 0.0 };
                 } else {
-                  // Normal number
                   if (c == winColor) { bet.amount * colorPayout(c) }
                   else { 0.0 };
                 };
@@ -513,7 +742,6 @@ actor {
     result;
   };
 
-  // ===== QUERIES =====
   public query ({ caller }) func getGameState(mode : Text) : async GameState {
     let round = getRound(mode);
     let resList = getResultsList(mode);

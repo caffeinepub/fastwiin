@@ -8,32 +8,63 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useDeposit } from "@/hooks/useQueries";
-import { Loader2, Plus } from "lucide-react";
+import { useActor } from "@/hooks/useActor";
+import {
+  useApproveDeposit,
+  useAuthStatus,
+  useRequestDeposit,
+} from "@/hooks/useQueries";
+import { openRazorpayCheckout } from "@/lib/razorpay";
+import { useQueryClient } from "@tanstack/react-query";
+import { Loader2, Lock, Plus } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
 export default function DepositModal() {
   const [open, setOpen] = useState(false);
-  const [amount, setAmount] = useState("100");
-  const deposit = useDeposit();
+  const [amount, setAmount] = useState("500");
+  const [loading, setLoading] = useState(false);
+
+  const { data: authStatus } = useAuthStatus();
+  const phone = authStatus?.phone ?? "";
+
+  const requestDeposit = useRequestDeposit();
+  const approveDeposit = useApproveDeposit();
+  const qc = useQueryClient();
 
   const handleDeposit = async () => {
     const n = Number.parseInt(amount, 10);
-    if (Number.isNaN(n) || n < 10) {
-      toast.error("Minimum deposit is ₹10");
+    if (Number.isNaN(n) || n < 100) {
+      toast.error("Minimum deposit is ₹100");
       return;
     }
     if (n > 10000) {
-      toast.error("Maximum balance is ₹10,000");
+      toast.error("Maximum deposit is ₹10,000");
       return;
     }
+    setLoading(true);
+    let depositId: string | null = null;
     try {
-      await deposit.mutateAsync(n);
-      toast.success(`₹${n} deposited!`);
+      depositId = await requestDeposit.mutateAsync({
+        phone,
+        amount: n,
+        upiRef: "razorpay",
+      });
+      await openRazorpayCheckout(n, phone);
+      await approveDeposit.mutateAsync(depositId);
+      toast.success(`₹${n} deposited successfully!`);
+      qc.invalidateQueries({ queryKey: ["balance"] });
+      qc.invalidateQueries({ queryKey: ["myDeposits"] });
       setOpen(false);
-    } catch {
-      toast.error("Deposit failed");
+    } catch (err: any) {
+      const msg = err?.message ?? "";
+      if (msg === "Payment cancelled") {
+        toast.error("Payment cancelled");
+      } else {
+        toast.error("Deposit failed. Please try again.");
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -67,7 +98,7 @@ export default function DepositModal() {
                 id="dep-amount"
                 data-ocid="deposit.input"
                 type="number"
-                min={10}
+                min={100}
                 max={10000}
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
@@ -90,14 +121,16 @@ export default function DepositModal() {
           <Button
             data-ocid="deposit.submit_button"
             onClick={handleDeposit}
-            disabled={deposit.isPending}
+            disabled={loading}
             className="w-full bg-cta text-cta-foreground hover:bg-cta/90 font-bold"
           >
-            {deposit.isPending && (
-              <Loader2 className="w-4 h-4 animate-spin mr-2" />
-            )}
-            Deposit ₹{amount || 0}
+            {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+            {loading ? "Processing..." : `Pay ₹${amount || 0} via Razorpay`}
           </Button>
+          <p className="text-[10px] text-muted-foreground text-center flex items-center justify-center gap-1">
+            <Lock className="w-2.5 h-2.5" />
+            Powered by Razorpay · Test Mode
+          </p>
         </div>
       </DialogContent>
     </Dialog>

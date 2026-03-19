@@ -1,12 +1,16 @@
 import AccountPage from "@/components/AccountPage";
+import AdminPanel from "@/components/AdminPanel";
 import AuthModal from "@/components/AuthModal";
 import BottomNav, { type TabKey } from "@/components/BottomNav";
 import DepositModal from "@/components/DepositModal";
 import GameModePage, { getTimeLeft } from "@/components/GameModePage";
+import Leaderboard from "@/components/Leaderboard";
 import NotificationPanel from "@/components/NotificationPanel";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
+import { LanguageProvider, useLanguage } from "@/contexts/LanguageContext";
 import { NotificationProvider } from "@/contexts/NotificationContext";
+import { useKeepAlive } from "@/hooks/useKeepAlive";
 import { useAuthStatus, useBalance } from "@/hooks/useQueries";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Clock, Timer, Trophy, Wallet, Zap } from "lucide-react";
@@ -14,6 +18,8 @@ import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState } from "react";
 
 const queryClient = new QueryClient();
+
+export const ADMIN_PHONE = "9999999999";
 
 const GAME_MODES = [
   {
@@ -82,6 +88,21 @@ function LiveCountdown({ durationSec }: { durationSec: number }) {
   );
 }
 
+function LanguageToggle() {
+  const { lang, setLang } = useLanguage();
+  return (
+    <button
+      type="button"
+      data-ocid="nav.language.toggle"
+      onClick={() => setLang(lang === "en" ? "hi" : "en")}
+      className="text-[10px] font-bold px-2 py-1 rounded-full border border-border hover:bg-accent transition-colors"
+      style={{ color: "oklch(0.75 0 0)" }}
+    >
+      {lang === "en" ? "हिं" : "EN"}
+    </button>
+  );
+}
+
 function AppContent() {
   const [loggedIn, setLoggedIn] = useState(
     () => localStorage.getItem("fastwiin_logged_in") === "true",
@@ -89,13 +110,24 @@ function AppContent() {
   const [activeTab, setActiveTab] = useState<TabKey>("home");
   const [authOpen, setAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
+  const [loadingTimedOut, setLoadingTimedOut] = useState(false);
+
+  useKeepAlive();
 
   const { data: authStatus, isLoading: authLoading } = useAuthStatus();
   const { data: balance } = useBalance();
 
+  // Safety timeout: if backend is slow, proceed after 4 seconds
+  useEffect(() => {
+    const timer = setTimeout(() => setLoadingTimedOut(true), 4000);
+    return () => clearTimeout(timer);
+  }, []);
+
   const isRegistered = authStatus?.registered ?? false;
   const registeredPhone = authStatus?.phone ?? "";
   const isLoggedIn = loggedIn && isRegistered;
+  const phone = authStatus?.phone ?? "";
+  const isAdmin = isLoggedIn && phone === ADMIN_PHONE;
 
   const openLogin = () => {
     setAuthMode("login");
@@ -120,7 +152,7 @@ function AppContent() {
     setActiveTab(key as TabKey);
   };
 
-  if (authLoading) {
+  if (authLoading && !loadingTimedOut) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-center space-y-3">
@@ -164,6 +196,7 @@ function AppContent() {
                 </div>
                 <DepositModal />
                 <NotificationPanel />
+                <LanguageToggle />
               </>
             ) : (
               <>
@@ -205,6 +238,7 @@ function AppContent() {
                 <HomeLoggedIn
                   balance={balance ?? 0}
                   onTabChange={setActiveTab}
+                  phone={phone}
                 />
               </motion.div>
             ) : (
@@ -234,12 +268,18 @@ function AppContent() {
               durationSec: m.durationSec,
             }))}
             onModeChange={handleModeChange}
+            phone={authStatus?.phone ?? ""}
           />
         )}
 
+        {activeTab === "admin" && isAdmin && <AdminPanel />}
+
         {activeTab === "account" &&
           (isLoggedIn ? (
-            <AccountPage onLogout={handleLogout} />
+            <AccountPage
+              onLogout={handleLogout}
+              phone={authStatus?.phone ?? ""}
+            />
           ) : (
             <div className="max-w-lg mx-auto px-4 pt-16 text-center">
               <p className="text-muted-foreground mb-4">
@@ -257,7 +297,11 @@ function AppContent() {
       </main>
 
       {/* BOTTOM NAV */}
-      <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />
+      <BottomNav
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        isAdmin={isAdmin}
+      />
 
       <AuthModal
         open={authOpen}
@@ -277,9 +321,11 @@ function AppContent() {
 function HomeLoggedIn({
   balance,
   onTabChange,
+  phone = "",
 }: {
   balance: number;
   onTabChange: (tab: TabKey) => void;
+  phone?: string;
 }) {
   return (
     <div className="max-w-lg mx-auto px-4 pt-5 pb-28 space-y-5">
@@ -409,6 +455,8 @@ function HomeLoggedIn({
           </motion.div>
         ))}
       </div>
+
+      <Leaderboard phone={phone} />
 
       <p className="text-[10px] font-black uppercase tracking-[0.15em] text-muted-foreground px-1 pt-2">
         How to Win
@@ -556,10 +604,12 @@ function LandingHero({
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <NotificationProvider>
-        <AppContent />
-        <Toaster richColors position="top-right" />
-      </NotificationProvider>
+      <LanguageProvider>
+        <NotificationProvider>
+          <AppContent />
+          <Toaster richColors position="top-right" />
+        </NotificationProvider>
+      </LanguageProvider>
     </QueryClientProvider>
   );
 }

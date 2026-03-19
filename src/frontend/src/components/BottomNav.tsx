@@ -1,9 +1,9 @@
-import { Clock, Home, Timer, User, Zap } from "lucide-react";
+import { Clock, Home, Shield, Timer, User, Zap } from "lucide-react";
 import { motion } from "motion/react";
 
-export type TabKey = "home" | "30s" | "1min" | "3min" | "account";
+export type TabKey = "home" | "30s" | "1min" | "3min" | "account" | "admin";
 
-const TABS: {
+const BASE_TABS: {
   key: TabKey;
   label: string;
   Icon: React.ComponentType<{ className?: string }>;
@@ -16,13 +16,24 @@ const TABS: {
   { key: "account", label: "Account", Icon: User },
 ];
 
+const ADMIN_TAB: {
+  key: TabKey;
+  label: string;
+  Icon: React.ComponentType<{ className?: string }>;
+  isHome?: boolean;
+} = { key: "admin" as TabKey, label: "Admin", Icon: Shield };
+
 export default function BottomNav({
   activeTab,
   onTabChange,
+  isAdmin,
 }: {
   activeTab: TabKey;
   onTabChange: (tab: TabKey) => void;
+  isAdmin?: boolean;
 }) {
+  const TABS = isAdmin ? [...BASE_TABS, ADMIN_TAB] : BASE_TABS;
+
   return (
     <nav
       className="fixed bottom-0 left-0 right-0 z-50"
@@ -35,13 +46,20 @@ export default function BottomNav({
       <div className="flex items-stretch h-[60px] max-w-[1240px] mx-auto">
         {TABS.map(({ key, label, Icon, isHome }) => {
           const isActive = activeTab === key;
+          const isAdminTab = key === "admin";
           const iconSize = isHome ? "w-[18px] h-[18px]" : "w-4 h-4";
-          const filter =
-            isActive && isHome
+          const activeColor = isHome
+            ? "oklch(0.84 0.16 89)"
+            : isAdminTab
+              ? "oklch(0.70 0.18 296)"
+              : "oklch(1 0 0)";
+          const filter = isActive
+            ? isHome
               ? "drop-shadow(0 0 6px oklch(0.84 0.16 89))"
-              : isActive
-                ? "drop-shadow(0 0 4px oklch(1 0 0 / 0.5))"
-                : "none";
+              : isAdminTab
+                ? "drop-shadow(0 0 4px oklch(0.70 0.18 296 / 0.6))"
+                : "drop-shadow(0 0 4px oklch(1 0 0 / 0.5))"
+            : "none";
 
           return (
             <button
@@ -51,29 +69,21 @@ export default function BottomNav({
               onClick={() => onTabChange(key)}
               className="flex-1 flex flex-col items-center justify-center gap-0.5 relative transition-all duration-200 group"
               style={{
-                color: isActive
-                  ? isHome
-                    ? "oklch(0.84 0.16 89)"
-                    : "oklch(1 0 0)"
-                  : "oklch(0.42 0 0)",
+                color: isActive ? activeColor : "oklch(0.42 0 0)",
               }}
             >
-              {/* Active glow border top */}
               {isActive && (
                 <motion.div
                   layoutId="bottom-nav-indicator"
                   className="absolute top-0 left-2 right-2 h-[2px] rounded-b-full"
                   style={{
-                    background: isHome ? "oklch(0.84 0.16 89)" : "oklch(1 0 0)",
-                    boxShadow: isHome
-                      ? "0 0 8px oklch(0.84 0.16 89 / 0.8)"
-                      : "0 0 8px oklch(1 0 0 / 0.4)",
+                    background: activeColor,
+                    boxShadow: `0 0 8px ${activeColor} / 0.8`,
                   }}
                   transition={{ type: "spring", stiffness: 500, damping: 30 }}
                 />
               )}
 
-              {/* Icon wrapper */}
               <div
                 className="relative flex items-center justify-center transition-all duration-200"
                 style={{
@@ -90,7 +100,15 @@ export default function BottomNav({
                     }}
                   />
                 )}
-                {/* Wrap icon in a div to apply filter without passing unsupported style prop */}
+                {isActive && isAdminTab && (
+                  <div
+                    className="absolute inset-0 rounded-full"
+                    style={{
+                      background: "oklch(0.70 0.18 296 / 0.12)",
+                      border: "1px solid oklch(0.70 0.18 296 / 0.25)",
+                    }}
+                  />
+                )}
                 <div
                   className="relative flex items-center justify-center"
                   style={{ filter }}
@@ -113,7 +131,6 @@ export default function BottomNav({
         })}
       </div>
 
-      {/* iOS-style safe area padding */}
       <div className="h-[env(safe-area-inset-bottom,0px)]" />
     </nav>
   );

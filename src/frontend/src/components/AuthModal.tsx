@@ -8,13 +8,21 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  useAuthStatus,
   useRequestOtp,
   useSetPassword,
   useVerifyOtp,
 } from "@/hooks/useQueries";
-import { KeyRound, Loader2, Lock, Phone } from "lucide-react";
+import {
+  AlertTriangle,
+  KeyRound,
+  Loader2,
+  Lock,
+  Phone,
+  RefreshCw,
+} from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 type AuthStep = "phone" | "otp" | "password" | "login";
@@ -38,6 +46,9 @@ function validatePassword(pw: string): string | null {
   return null;
 }
 
+const MAX_RETRIES = 3;
+const RETRY_DELAYS = [2000, 4000, 6000];
+
 export default function AuthModal({
   open,
   defaultMode,
@@ -55,6 +66,14 @@ export default function AuthModal({
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
+  const [otpRetries, setOtpRetries] = useState(0);
+  const [otpError, setOtpError] = useState<string | null>(null);
+  const [resendingOtp, setResendingOtp] = useState(false);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Wait for a real backend response before allowing OTP send
+  const { isLoading: authChecking, data: authData } = useAuthStatus();
+  const isBackendReady = !!authData && !authChecking;
 
   useEffect(() => {
     if (open) {
@@ -63,26 +82,73 @@ export default function AuthModal({
       setPassword("");
       setConfirmPassword("");
       setLoginPassword("");
+      setOtpRetries(0);
+      setOtpError(null);
+      setResendingOtp(false);
     }
+    return () => {
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    };
   }, [open, defaultMode, isRegistered]);
 
   const requestOtp = useRequestOtp();
   const verifyOtp = useVerifyOtp();
   const setPasswordMutation = useSetPassword();
 
+  // Retry OTP with delays (up to MAX_RETRIES tries)
+  const sendOtpWithRetry = async (
+    phoneNum: string,
+    attempt = 0,
+  ): Promise<void> => {
+    setOtpError(null);
+    try {
+      const code = await requestOtp.mutateAsync(phoneNum);
+      setOtpReceived(code);
+      setStep("otp");
+      toast.success("OTP sent!");
+      setOtpRetries(0);
+      setResendingOtp(false);
+    } catch (err: any) {
+      if (attempt < MAX_RETRIES - 1) {
+        const delay = RETRY_DELAYS[attempt];
+        const retryNum = attempt + 1;
+        toast.loading(`Retrying... (${retryNum}/${MAX_RETRIES})`, {
+          id: "otp-retry",
+        });
+        setOtpRetries(retryNum);
+        retryTimerRef.current = setTimeout(() => {
+          sendOtpWithRetry(phoneNum, attempt + 1);
+        }, delay);
+      } else {
+        toast.dismiss("otp-retry");
+        setOtpRetries(0);
+        setResendingOtp(false);
+        setOtpError(
+          err?.message ||
+            "Could not send OTP. The server may still be waking up.",
+        );
+      }
+    }
+  };
+
   const handleRequestOtp = async () => {
+    if (!isBackendReady) {
+      toast.error("App is still connecting, please wait a moment");
+      return;
+    }
     if (!phone.trim()) {
       toast.error("Enter a valid phone number");
       return;
     }
-    try {
-      const code = await requestOtp.mutateAsync(phone.trim());
-      setOtpReceived(code);
-      setStep("otp");
-      toast.success("OTP sent!");
-    } catch {
-      toast.error("Failed to send OTP");
-    }
+    setOtpError(null);
+    await sendOtpWithRetry(phone.trim());
+  };
+
+  const handleResendOtp = async () => {
+    if (!isBackendReady || resendingOtp || isSendingOtp) return;
+    setResendingOtp(true);
+    setOtp("");
+    await sendOtpWithRetry(phone.trim());
   };
 
   const handleVerifyOtp = async () => {
@@ -98,8 +164,8 @@ export default function AuthModal({
       } else {
         toast.error("Invalid OTP");
       }
-    } catch {
-      toast.error("OTP verification failed");
+    } catch (err: any) {
+      toast.error(err?.message || "OTP verification failed");
     }
   };
 
@@ -123,8 +189,8 @@ export default function AuthModal({
       } else {
         toast.error("Failed to set password");
       }
-    } catch {
-      toast.error("Registration failed");
+    } catch (err: any) {
+      toast.error(err?.message || "Registration failed");
     }
   };
 
@@ -148,6 +214,8 @@ export default function AuthModal({
     password: "Set Password",
     login: "Welcome Back",
   };
+
+  const isSendingOtp = requestOtp.isPending || otpRetries > 0;
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -192,20 +260,108 @@ export default function AuthModal({
                     placeholder="+91 XXXXX XXXXX"
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && handleRequestOtp()}
+                    onKeyDown={(e) =>
+                      e.key === "Enter" && !isSendingOtp && handleRequestOtp()
+                    }
                     className="bg-input border-border"
                   />
                 </div>
+
+                {/* Backend connecting indicator */}
+                {!isBackendReady && (
+                  <div
+                    className="flex items-center gap-2 text-xs text-muted-foreground"
+                    data-ocid="auth.loading_state"
+                  >
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    <span>Connecting to server...</span>
+                  </div>
+                )}
+
+                {/* Retry progress indicator */}
+                {otpRetries > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="flex items-center gap-2 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20"
+                    data-ocid="auth.loading_state"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400 shrink-0" />
+                    <div className="flex-1">
+                      <p className="text-xs text-amber-400 font-medium">
+                        Retrying ({otpRetries}/{MAX_RETRIES})...
+                      </p>
+                      <div className="flex gap-1 mt-1">
+                        <div
+                          className={`h-1 flex-1 rounded-full transition-colors ${otpRetries >= 1 ? "bg-amber-400" : "bg-amber-400/20"}`}
+                        />
+                        <div
+                          className={`h-1 flex-1 rounded-full transition-colors ${otpRetries >= 2 ? "bg-amber-400" : "bg-amber-400/20"}`}
+                        />
+                        <div
+                          className={`h-1 flex-1 rounded-full transition-colors ${otpRetries >= 3 ? "bg-amber-400" : "bg-amber-400/20"}`}
+                        />
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* OTP send error card */}
+                <AnimatePresence>
+                  {otpError && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -4 }}
+                      className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 space-y-2.5"
+                      data-ocid="auth.error_state"
+                    >
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-xs font-semibold text-red-400">
+                            Could not send OTP
+                          </p>
+                          <p className="text-xs text-red-300/80 mt-0.5">
+                            The server may still be waking up.
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        data-ocid="auth.secondary_button"
+                        size="sm"
+                        onClick={() => {
+                          setOtpError(null);
+                          sendOtpWithRetry(phone.trim());
+                        }}
+                        disabled={isSendingOtp}
+                        className="w-full bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/30 font-semibold h-8"
+                        variant="ghost"
+                      >
+                        <RefreshCw className="w-3 h-3 mr-1.5" />
+                        Try Again
+                      </Button>
+                      <p className="text-[11px] text-muted-foreground text-center">
+                        If this keeps failing, wait 15 seconds and try again
+                      </p>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
                 <Button
                   data-ocid="auth.primary_button"
                   onClick={handleRequestOtp}
-                  disabled={requestOtp.isPending}
+                  disabled={isSendingOtp || !isBackendReady}
                   className="w-full bg-cta text-cta-foreground hover:bg-cta/90 font-bold"
                 >
-                  {requestOtp.isPending && (
+                  {(isSendingOtp || !isBackendReady) && (
                     <Loader2 className="w-4 h-4 animate-spin mr-2" />
                   )}
-                  Send OTP
+                  {!isBackendReady
+                    ? "Connecting..."
+                    : isSendingOtp
+                      ? "Sending OTP..."
+                      : "Send OTP"}
                 </Button>
                 <button
                   type="button"
@@ -263,13 +419,55 @@ export default function AuthModal({
                   )}
                   Verify OTP
                 </Button>
-                <button
-                  type="button"
-                  onClick={() => setStep("phone")}
-                  className="w-full text-center text-xs text-muted-foreground hover:text-foreground"
-                >
-                  ← Change number
-                </button>
+
+                {/* Resend OTP retry indicator while resending */}
+                <AnimatePresence>
+                  {resendingOtp && isSendingOtp && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0 }}
+                      className="flex items-center gap-2 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20"
+                      data-ocid="auth.loading_state"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400 shrink-0" />
+                      <p className="text-xs text-amber-400">
+                        {otpRetries > 0
+                          ? `Retrying (${otpRetries}/${MAX_RETRIES})...`
+                          : "Sending new OTP..."}
+                      </p>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                <div className="flex flex-col gap-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStep("phone");
+                      setOtpRetries(0);
+                      setOtpError(null);
+                      setResendingOtp(false);
+                    }}
+                    className="w-full text-center text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    ← Change number
+                  </button>
+                  <button
+                    type="button"
+                    data-ocid="auth.secondary_button"
+                    onClick={handleResendOtp}
+                    disabled={isSendingOtp || !isBackendReady}
+                    className="w-full text-center text-xs text-cta hover:text-cta/80 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1"
+                  >
+                    {isSendingOtp && resendingOtp ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <RefreshCw className="w-3 h-3" />
+                    )}
+                    Resend OTP
+                  </button>
+                </div>
               </motion.div>
             )}
 

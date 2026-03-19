@@ -3,6 +3,7 @@ import type { BetTarget, RoundResult } from "@/backend";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useNotifications } from "@/contexts/NotificationContext";
+import { useLocalHistory } from "@/hooks/useLocalHistory";
 import {
   useBalance,
   useGameState,
@@ -269,13 +270,18 @@ function CountdownPopup({ timeLeft }: { timeLeft: number }) {
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.85 }}
       transition={{ duration: 0.2, ease: "easeOut" }}
-      className="fixed inset-0 z-[60] flex flex-col items-center justify-center"
-      style={{ background: "rgba(0,0,0,0.88)" }}
+      className="fixed inset-x-0 z-[60] flex flex-col items-center justify-center"
+      style={{
+        top: "35%",
+        height: "30%",
+        background: "rgba(0,0,0,0.92)",
+        backdropFilter: "blur(6px)",
+      }}
       data-ocid="game.countdown.modal"
     >
       <p
         className="text-[11px] font-black uppercase tracking-[0.25em] mb-4"
-        style={{ color: RED }}
+        style={{ color: "rgba(255,200,200,0.9)" }}
       >
         BETTING CLOSES IN
       </p>
@@ -287,14 +293,14 @@ function CountdownPopup({ timeLeft }: { timeLeft: number }) {
           exit={{ scale: 0.6, opacity: 0 }}
           transition={{ duration: 0.18, ease: "easeOut" }}
           className="font-black leading-none"
-          style={{ fontSize: "8rem", color: RED, lineHeight: 1 }}
+          style={{ fontSize: "5rem", color: "#fff", lineHeight: 1 }}
         >
           {timeLeft}
         </motion.div>
       </AnimatePresence>
       <p
         className="mt-6 text-xs font-bold uppercase tracking-widest"
-        style={{ color: "oklch(0.45 0 0)" }}
+        style={{ color: "rgba(255,200,200,0.75)" }}
       >
         seconds
       </p>
@@ -647,11 +653,32 @@ function BetAmountPanel({
   );
 }
 
-function GameHistoryTable({ results }: { results: RoundResult[] }) {
+interface BetRecord {
+  id: string;
+  roundId: string;
+  target: string;
+  result: "win" | "loss" | "pending";
+  amount: number;
+}
+
+function GameHistoryTable({
+  results,
+  betHistory,
+}: {
+  results: RoundResult[];
+  betHistory: BetRecord[];
+}) {
   const last10 = [...results].reverse().slice(0, 10);
-  const [activeHistoryTab, setActiveHistoryTab] = useState<"history" | "chart">(
-    "history",
-  );
+  const last10Bets = [...betHistory].reverse().slice(0, 10);
+  const [activeHistoryTab, setActiveHistoryTab] = useState<
+    "history" | "chart" | "bets"
+  >("history");
+
+  const tabs: { key: "history" | "chart" | "bets"; label: string }[] = [
+    { key: "history", label: "Game History" },
+    { key: "chart", label: "Chart" },
+    { key: "bets", label: "My Bets" },
+  ];
 
   return (
     <div
@@ -665,98 +692,182 @@ function GameHistoryTable({ results }: { results: RoundResult[] }) {
         className="flex"
         style={{ borderBottom: "1px solid oklch(0.18 0 0)" }}
       >
-        {(["history", "chart"] as const).map((t) => (
+        {tabs.map((t) => (
           <button
-            key={t}
+            key={t.key}
             type="button"
-            data-ocid={`history.${t}.tab`}
-            onClick={() => setActiveHistoryTab(t)}
+            data-ocid={`history.${t.key}.tab`}
+            onClick={() => setActiveHistoryTab(t.key)}
             className="px-4 py-2.5 text-xs font-bold capitalize transition-all"
             style={{
               background:
-                activeHistoryTab === t ? "oklch(0.98 0 0)" : "transparent",
+                activeHistoryTab === t.key ? "oklch(0.98 0 0)" : "transparent",
               color:
-                activeHistoryTab === t ? "oklch(0.06 0 0)" : "oklch(0.45 0 0)",
+                activeHistoryTab === t.key
+                  ? "oklch(0.06 0 0)"
+                  : "oklch(0.45 0 0)",
             }}
           >
-            {t === "history" ? "Game History" : "Chart"}
+            {t.label}
           </button>
         ))}
-        <button
-          type="button"
-          className="px-4 py-2.5 text-xs font-bold"
-          style={{ color: "oklch(0.35 0 0)" }}
-        >
-          Follow Strategy
-        </button>
       </div>
 
-      <div>
-        <div
-          className="grid grid-cols-3 px-4 py-2 text-[10px] font-black uppercase tracking-widest"
-          style={{
-            color: "oklch(0.45 0 0)",
-            borderBottom: "1px solid oklch(0.15 0 0)",
-          }}
-        >
-          <span>Period</span>
-          <span className="text-center">Number</span>
-          <span className="text-right">Color</span>
-        </div>
-
-        {last10.length === 0 ? (
+      {activeHistoryTab === "history" && (
+        <div>
           <div
-            data-ocid="history.empty_state"
-            className="py-8 text-center text-xs"
-            style={{ color: "oklch(0.4 0 0)" }}
+            className="grid grid-cols-3 px-4 py-2 text-[10px] font-black uppercase tracking-widest"
+            style={{
+              color: "oklch(0.45 0 0)",
+              borderBottom: "1px solid oklch(0.15 0 0)",
+            }}
           >
-            No results yet
+            <span>Period</span>
+            <span className="text-center">Number</span>
+            <span className="text-right">Color</span>
           </div>
-        ) : (
-          last10.map((r, i) => {
-            const n = Number(r.winningNumber);
-            const bg = getResultDotBg(n);
-            const isEvenRow = i % 2 === 0;
-            return (
-              <div
-                key={`${String(r.roundId)}-${i}`}
-                data-ocid={`history.item.${i + 1}`}
-                className="grid grid-cols-3 items-center px-4 py-2.5"
-                style={{
-                  background: isEvenRow ? "oklch(0.08 0 0)" : "transparent",
-                  borderBottom: "1px solid oklch(0.13 0 0)",
-                }}
-              >
-                <span
-                  className="text-[10px] font-mono"
-                  style={{ color: "oklch(0.50 0 0)" }}
+
+          {last10.length === 0 ? (
+            <div
+              data-ocid="history.empty_state"
+              className="py-8 text-center text-xs"
+              style={{ color: "oklch(0.4 0 0)" }}
+            >
+              No results yet
+            </div>
+          ) : (
+            last10.map((r, i) => {
+              const n = Number(r.winningNumber);
+              const bg = getResultDotBg(n);
+              const isEvenRow = i % 2 === 0;
+              return (
+                <div
+                  key={`${String(r.roundId)}-${i}`}
+                  data-ocid={`history.item.${i + 1}`}
+                  className="grid grid-cols-3 items-center px-4 py-2.5"
+                  style={{
+                    background: isEvenRow ? "oklch(0.08 0 0)" : "transparent",
+                    borderBottom: "1px solid oklch(0.13 0 0)",
+                  }}
                 >
-                  ...{String(r.roundId).slice(-6)}
-                </span>
-                <div className="flex justify-center">
-                  <div
-                    className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-black text-white"
-                    style={{
-                      background: bg,
-                      boxShadow: `0 0 6px ${
-                        n === 0 || n === 5 ? "oklch(0.48 0.22 296)" : bg
-                      }40`,
-                    }}
+                  <span
+                    className="text-[10px] font-mono"
+                    style={{ color: "oklch(0.50 0 0)" }}
                   >
-                    {n}
+                    ...{String(r.roundId).slice(-6)}
+                  </span>
+                  <div className="flex justify-center">
+                    <div
+                      className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-black text-white"
+                      style={{
+                        background: bg,
+                        boxShadow: `0 0 6px ${
+                          n === 0 || n === 5 ? "oklch(0.48 0.22 296)" : bg
+                        }40`,
+                      }}
+                    >
+                      {n}
+                    </div>
+                  </div>
+                  <div className="flex justify-end">
+                    <div
+                      className="w-5 h-5 rounded-full"
+                      style={{ background: bg }}
+                    />
                   </div>
                 </div>
-                <div className="flex justify-end">
-                  <div
-                    className="w-5 h-5 rounded-full"
-                    style={{ background: bg }}
-                  />
+              );
+            })
+          )}
+        </div>
+      )}
+
+      {activeHistoryTab === "chart" && (
+        <div className="px-4 py-6 text-center">
+          <p className="text-xs" style={{ color: "oklch(0.4 0 0)" }}>
+            Chart coming soon
+          </p>
+        </div>
+      )}
+
+      {activeHistoryTab === "bets" && (
+        <div>
+          <div
+            className="grid grid-cols-4 px-4 py-2 text-[10px] font-black uppercase tracking-widest"
+            style={{
+              color: "oklch(0.45 0 0)",
+              borderBottom: "1px solid oklch(0.15 0 0)",
+            }}
+          >
+            <span>Round</span>
+            <span className="text-center">Bet</span>
+            <span className="text-center">Amount</span>
+            <span className="text-right">Result</span>
+          </div>
+
+          {last10Bets.length === 0 ? (
+            <div
+              data-ocid="bets.empty_state"
+              className="py-8 text-center text-xs"
+              style={{ color: "oklch(0.4 0 0)" }}
+            >
+              No bets placed yet
+            </div>
+          ) : (
+            last10Bets.map((b, i) => {
+              const isEvenRow = i % 2 === 0;
+              const resultColor =
+                b.result === "win"
+                  ? GREEN
+                  : b.result === "loss"
+                    ? RED
+                    : "oklch(0.55 0 0)";
+              const resultLabel =
+                b.result === "win"
+                  ? "Win"
+                  : b.result === "loss"
+                    ? "Loss"
+                    : "Pending";
+              return (
+                <div
+                  key={b.id}
+                  data-ocid={`bets.item.${i + 1}`}
+                  className="grid grid-cols-4 items-center px-4 py-2.5"
+                  style={{
+                    background: isEvenRow ? "oklch(0.08 0 0)" : "transparent",
+                    borderBottom: "1px solid oklch(0.13 0 0)",
+                  }}
+                >
+                  <span
+                    className="text-[10px] font-mono"
+                    style={{ color: "oklch(0.50 0 0)" }}
+                  >
+                    ...{b.roundId}
+                  </span>
+                  <span
+                    className="text-[10px] font-bold text-center truncate"
+                    style={{ color: "oklch(0.75 0 0)" }}
+                  >
+                    {b.target}
+                  </span>
+                  <span
+                    className="text-[10px] font-mono text-center"
+                    style={{ color: "oklch(0.65 0 0)" }}
+                  >
+                    ₹{b.amount}
+                  </span>
+                  <span
+                    className="text-[10px] font-black text-right"
+                    style={{ color: resultColor }}
+                  >
+                    {resultLabel}
+                  </span>
                 </div>
-              </div>
-            );
-          })
-        )}
-      </div>
+              );
+            })
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -835,14 +946,6 @@ function ResultOverlay({
   );
 }
 
-interface BetRecord {
-  id: string;
-  roundId: string;
-  target: string;
-  result: "win" | "loss" | "pending";
-  amount: number;
-}
-
 export default function GameModePage({
   modeKey,
   label,
@@ -852,6 +955,7 @@ export default function GameModePage({
   onLoginRequired,
   allModes,
   onModeChange,
+  phone = "",
 }: {
   modeKey: string;
   label: string;
@@ -861,10 +965,12 @@ export default function GameModePage({
   onLoginRequired: () => void;
   allModes: ModeOption[];
   onModeChange: (key: string) => void;
+  phone?: string;
 }) {
   const [selectedColor, setSelectedColor] = useState<Color | null>(null);
   const [selectedNumber, setSelectedNumber] = useState<number | null>(null);
   const [betHistory, setBetHistory] = useState<BetRecord[]>([]);
+  const betHistoryRef = useRef<BetRecord[]>([]);
   const [timeLeft, setTimeLeft] = useState(() => getTimeLeft(durationSec));
   const [bettingClosed, setBettingClosed] = useState(false);
   const [showResult, setShowResult] = useState<RoundResult | null>(null);
@@ -874,6 +980,7 @@ export default function GameModePage({
   const audioCtxRef = useRef<AudioContext | null>(null);
 
   const { data: gameState, refetch: refetchGameState } = useGameState(modeKey);
+  const { addBet } = useLocalHistory(phone);
   const { refetch: refetchBalance } = useBalance();
   const lockRound = useLockRound();
   const settleRound = useSettleRound();
@@ -942,7 +1049,12 @@ export default function GameModePage({
               `Round #${String(result.roundId).slice(-4)} result: ${Number(result.winningNumber)} (${result.winningColor})`,
               "result",
             );
-            const lastBet = betHistory[betHistory.length - 1];
+            toast.info(
+              `${modeKey} • #${String(result.roundId).slice(-4)} • Number ${Number(result.winningNumber)} · ${result.winningColor}`,
+              { duration: 4000 },
+            );
+            const lastBet =
+              betHistoryRef.current[betHistoryRef.current.length - 1];
             if (lastBet && lastBet.result === "pending") {
               const isColorBet = lastBet.target.startsWith("Color");
               const won = isColorBet
@@ -960,17 +1072,19 @@ export default function GameModePage({
                   payout = lastBet.amount * 9;
                 }
               }
-              setBetHistory((prev) =>
-                prev.map((b, idx) =>
+              setBetHistory((prev) => {
+                const updated = prev.map((b, idx) =>
                   idx === prev.length - 1
                     ? {
                         ...b,
-                        result: won ? "win" : "loss",
+                        result: (won ? "win" : "loss") as "win" | "loss",
                         amount: won ? payout : lastBet.amount,
                       }
                     : b,
-                ),
-              );
+                );
+                betHistoryRef.current = updated;
+                return updated;
+              });
               if (won) {
                 toast.success(`🎉 You won ₹${payout}!`);
                 addNotification(`You won ₹${payout}! 🎉`, "win");
@@ -991,10 +1105,10 @@ export default function GameModePage({
       prevTimeRef.current = t;
     };
     tick();
-    const id = setInterval(tick, 500);
+    const id = setInterval(tick, 200);
     return () => clearInterval(id);
     // biome-ignore lint/correctness/useExhaustiveDependencies: addNotification stable context ref, refs excluded
-  }, [durationSec, modeKey, betHistory, playBeep]);
+  }, [durationSec, modeKey, playBeep]);
 
   const handleBetPlaced = useCallback(
     (target: { color?: Color; number?: number }, amount: number) => {
@@ -1005,19 +1119,27 @@ export default function GameModePage({
       const roundId = gameState?.currentRound?.roundId
         ? String(gameState.currentRound.roundId).slice(-4)
         : "----";
-      setBetHistory((prev) => [
-        ...prev,
-        {
-          id: `${Date.now()}-${Math.random()}`,
-          roundId,
-          target: targetLabel,
-          result: "pending",
-          amount,
-        },
-      ]);
+      const fullPeriodId = gameState?.currentRound?.roundId
+        ? String(gameState.currentRound.roundId)
+        : "--";
+      setBetHistory((prev) => {
+        const updated = [
+          ...prev,
+          {
+            id: `${Date.now()}-${Math.random()}`,
+            roundId,
+            target: targetLabel,
+            result: "pending" as const,
+            amount,
+          },
+        ];
+        betHistoryRef.current = updated;
+        return updated;
+      });
+      addBet(modeKey, amount, targetLabel, fullPeriodId);
       addNotification(`Bet placed: ₹${amount} on ${targetLabel}`, "info");
     },
-    [gameState, addNotification],
+    [gameState, addNotification, addBet, modeKey],
   );
 
   const results = gameState?.lastResults ?? [];
@@ -1119,7 +1241,7 @@ export default function GameModePage({
         style={{ height: "1px", background: "oklch(0.18 0 0)" }}
       />
 
-      <GameHistoryTable results={results} />
+      <GameHistoryTable results={results} betHistory={betHistory} />
     </div>
   );
 }
