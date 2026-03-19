@@ -64,6 +64,7 @@ export default function AuthModal({
   const [otpReceived, setOtpReceived] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [referralCode, setReferralCode] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [otpRetries, setOtpRetries] = useState(0);
   const [otpError, setOtpError] = useState<string | null>(null);
@@ -79,6 +80,7 @@ export default function AuthModal({
       setOtp("");
       setPassword("");
       setConfirmPassword("");
+      setReferralCode("");
       setLoginPassword("");
       setOtpRetries(0);
       setOtpError(null);
@@ -174,7 +176,10 @@ export default function AuthModal({
       return;
     }
     try {
-      const ok = await setPasswordMutation.mutateAsync(password);
+      const ok = await setPasswordMutation.mutateAsync({
+        password,
+        referralCode: referralCode.trim() || null,
+      });
       if (ok) {
         localStorage.setItem("fastwiin_logged_in", "true");
         localStorage.setItem("fastwiin_password_hash", btoa(password));
@@ -486,6 +491,23 @@ export default function AuthModal({
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     className="bg-input border-border"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="set-ref">
+                    Referral Code{" "}
+                    <span className="text-muted-foreground text-xs">
+                      (optional)
+                    </span>
+                  </Label>
+                  <Input
+                    id="set-ref"
+                    data-ocid="auth.input"
+                    type="text"
+                    placeholder="Enter referral code"
+                    value={referralCode}
+                    onChange={(e) => setReferralCode(e.target.value)}
+                    className="bg-input border-border uppercase"
                   />
                 </div>
                 <div className="grid grid-cols-4 gap-1 text-xs">

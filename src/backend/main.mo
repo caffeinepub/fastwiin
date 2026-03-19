@@ -8,11 +8,14 @@ import Float "mo:core/Float";
 import Random "mo:core/Random";
 import Principal "mo:core/Principal";
 import Array "mo:core/Array";
-
+import Char "mo:core/Char";
+import Iter "mo:core/Iter";
+import Migration "migration";
 
 import MixinAuthorization "authorization/MixinAuthorization";
 import AccessControl "authorization/access-control";
 
+(with migration = Migration.run)
 actor {
   let accessControlState = AccessControl.initState();
   include MixinAuthorization(accessControlState);
@@ -84,18 +87,29 @@ actor {
   let phoneAccounts = Map.empty<Principal, PhoneAccount>();
 
   // ===== PHONE-KEYED MAPS (for phone-based login) =====
-  // Keep original shape to maintain upgrade compatibility
   type PhoneRecord = { password : Text; registered : Bool };
   let phoneIndex = Map.empty<Text, PhoneRecord>();
-
-  // Separate maps for new admin fields (avoids PhoneRecord upgrade incompatibility)
   let phoneBlocked = Map.empty<Text, Bool>();
   let phoneRegisteredAt = Map.empty<Text, Int>();
-
-  // phone -> login OTP
   let phoneLoginOtps = Map.empty<Text, Text>();
 
-  // Helper: check if caller is a registered user
+  // Map phone to principal for authorization checks
+  let phoneToPrincipal = Map.empty<Text, Principal>();
+
+  // ===== REFERRAL SYSTEM =====
+  public type ReferralRecord = {
+    referredPhone : Text;
+    signupBonusPaid : Bool;
+    depositBonusPaid : Bool;
+    timestamp : Int;
+  };
+
+  let phoneReferralCodes = Map.empty<Text, Text>();
+  let reverseReferralCodes = Map.empty<Text, Text>();
+  let referrerOf = Map.empty<Text, Text>();
+  let phoneFirstDeposited = Map.empty<Text, Bool>();
+  let referralBonuses = Map.empty<Text, [ReferralRecord]>();
+
   func isRegisteredUser(caller : Principal) : Bool {
     switch (phoneAccounts.get(caller)) {
       case (?acc) { acc.registered };
@@ -103,7 +117,20 @@ actor {
     };
   };
 
-  // Public - guests need to register
+  func getCallerPhone(caller : Principal) : ?Text {
+    switch (phoneAccounts.get(caller)) {
+      case (?acc) { if (acc.registered) { ?acc.phone } else { null } };
+      case null { null };
+    };
+  };
+
+  func isCallerPhoneOwner(caller : Principal, phone : Text) : Bool {
+    switch (getCallerPhone(caller)) {
+      case (?callerPhone) { callerPhone == phone };
+      case null { false };
+    };
+  };
+
   public shared ({ caller }) func requestOtp(phone : Text) : async Text {
     let rng = Random.crypto();
     let n = await* rng.natRange(100000, 999999);
@@ -131,35 +158,88 @@ actor {
     };
   };
 
-  public shared ({ caller }) func setPassword(password : Text) : async Bool {
+  public shared ({ caller }) func setPassword(password : Text, referralCode : ?Text) : async Bool {
     if (password.size() < 8) {
       Runtime.trap("Password must be at least 8 characters");
     };
-    switch (phoneAccounts.get(caller)) {
-      case (?acc) {
-        if (not acc.otpVerified) { return false };
-        if (not acc.registered) {
-          switch (balances.get(caller)) {
-            case null { balances.add(caller, 10.0) };
-            case _ {};
-          };
-          switch (phoneBalances.get(acc.phone)) {
-            case null { phoneBalances.add(acc.phone, 10.0) };
-            case _ {};
-          };
-          newUserProfiles.add(caller, { name = ""; phone = acc.phone });
-          // Record registration time (only set once)
-          switch (phoneRegisteredAt.get(acc.phone)) {
-            case null { phoneRegisteredAt.add(acc.phone, Time.now()) };
-            case _ {};
+
+    let account = switch (phoneAccounts.get(caller)) {
+      case (null) { return false };
+      case (?acc) { acc };
+    };
+    if (not account.otpVerified) { return false };
+
+    let newUser = not account.registered;
+    var signupBonus : Float = 10.0;
+
+    // Apply referral code if provided and user is new
+    if (newUser) {
+      switch (referralCode) {
+        case (?code) {
+          switch (reverseReferralCodes.get(code)) {
+            case (?referrerPhone) {
+              if (referrerPhone != account.phone) {
+                signupBonus += 20.0;
+                referrerOf.add(account.phone, referrerPhone);
+                let record : ReferralRecord = {
+                  referredPhone = account.phone;
+                  signupBonusPaid = true;
+                  depositBonusPaid = false;
+                  timestamp = Time.now();
+                };
+                let existing = switch (referralBonuses.get(referrerPhone)) {
+                  case (null) { [] };
+                  case (?arr) { arr };
+                };
+                referralBonuses.add(
+                  referrerPhone,
+                  Array.tabulate(existing.size() + 1, func(i) { if (i < existing.size()) { existing[i] } else { record } }),
+                );
+              };
+            };
+            case (null) {};
           };
         };
-        phoneAccounts.add(caller, { acc with password; registered = true });
-        phoneIndex.add(acc.phone, { password; registered = true });
-        true;
+        case (null) {};
       };
-      case null { false };
     };
+
+    phoneAccounts.add(caller, { account with password; registered = true });
+    phoneIndex.add(account.phone, { password; registered = true });
+    phoneToPrincipal.add(account.phone, caller);
+
+    if (newUser) {
+      switch (balances.get(caller)) {
+        case null { balances.add(caller, signupBonus) };
+        case _ {};
+      };
+      switch (phoneBalances.get(account.phone)) {
+        case null { phoneBalances.add(account.phone, signupBonus) };
+        case _ {};
+      };
+      newUserProfiles.add(caller, { name = ""; phone = account.phone });
+      switch (phoneRegisteredAt.get(account.phone)) {
+        case null { phoneRegisteredAt.add(account.phone, Time.now()) };
+        case _ {};
+      };
+
+      // Generate referral code automatically for new user
+      let chars = account.phone.toArray();
+      let len = chars.size();
+
+      let refCode = if (len <= 6) {
+        "FW" # account.phone;
+      } else {
+        let start = len - 6;
+        let digits = chars.sliceToArray(0, start);
+        let digitsStr = Text.fromArray(digits);
+        "FW" # digitsStr;
+      };
+
+      phoneReferralCodes.add(account.phone, refCode);
+      reverseReferralCodes.add(refCode, account.phone);
+    };
+    true;
   };
 
   public func requestLoginOtp(phone : Text) : async ?Text {
@@ -176,7 +256,6 @@ actor {
   };
 
   public func verifyLoginWithOtp(phone : Text, otp : Text, password : Text) : async Bool {
-    // Check if user is blocked
     let blocked = switch (phoneBlocked.get(phone)) { case (?b) b; case null false };
     if (blocked) { return false };
     switch (phoneLoginOtps.get(phone)) {
@@ -258,7 +337,10 @@ actor {
     };
   };
 
-  public query func getBalanceByPhone(phone : Text) : async Float {
+  public query ({ caller }) func getBalanceByPhone(phone : Text) : async Float {
+    if (not isCallerPhoneOwner(caller, phone) and not AccessControl.isAdmin(accessControlState, caller)) {
+      Runtime.trap("Unauthorized: Can only view your own balance");
+    };
     switch (phoneBalances.get(phone)) {
       case (?b) { b };
       case null { 0.0 };
@@ -290,7 +372,10 @@ actor {
   let withdrawals = Map.empty<Text, WithdrawalRecord>();
   var withdrawalCounter : Nat = 0;
 
-  public func requestWithdrawal(phone : Text, amount : Float, upiId : Text) : async Text {
+  public shared ({ caller }) func requestWithdrawal(phone : Text, amount : Float, upiId : Text) : async Text {
+    if (not isCallerPhoneOwner(caller, phone)) {
+      Runtime.trap("Unauthorized: Can only request withdrawal for your own account");
+    };
     if (amount <= 0.0) { Runtime.trap("Amount must be positive") };
     let curBal = switch (phoneBalances.get(phone)) { case (?b) b; case null 0.0 };
     if (curBal < amount) { Runtime.trap("Insufficient balance") };
@@ -306,7 +391,10 @@ actor {
     id;
   };
 
-  public func approveWithdrawal(id : Text) : async Bool {
+  public shared ({ caller }) func approveWithdrawal(id : Text) : async Bool {
+    if (not AccessControl.isAdmin(accessControlState, caller)) {
+      Runtime.trap("Unauthorized: Only admins can approve withdrawals");
+    };
     switch (withdrawals.get(id)) {
       case (?rec) {
         if (rec.status != #pending) { return false };
@@ -317,7 +405,10 @@ actor {
     };
   };
 
-  public func rejectWithdrawal(id : Text) : async Bool {
+  public shared ({ caller }) func rejectWithdrawal(id : Text) : async Bool {
+    if (not AccessControl.isAdmin(accessControlState, caller)) {
+      Runtime.trap("Unauthorized: Only admins can reject withdrawals");
+    };
     switch (withdrawals.get(id)) {
       case (?rec) {
         if (rec.status != #pending) { return false };
@@ -330,7 +421,10 @@ actor {
     };
   };
 
-  public query func getAllWithdrawals() : async [WithdrawalRecord] {
+  public query ({ caller }) func getAllWithdrawals() : async [WithdrawalRecord] {
+    if (not AccessControl.isAdmin(accessControlState, caller)) {
+      Runtime.trap("Unauthorized: Only admins can view all withdrawals");
+    };
     let result = List.empty<WithdrawalRecord>();
     for ((_, rec) in withdrawals.entries()) {
       result.add(rec);
@@ -338,7 +432,10 @@ actor {
     result.toVarArray().toArray();
   };
 
-  public query func getMyWithdrawals(phone : Text) : async [WithdrawalRecord] {
+  public query ({ caller }) func getMyWithdrawals(phone : Text) : async [WithdrawalRecord] {
+    if (not isCallerPhoneOwner(caller, phone)) {
+      Runtime.trap("Unauthorized: Can only view your own withdrawals");
+    };
     let result = List.empty<WithdrawalRecord>();
     for ((_, rec) in withdrawals.entries()) {
       if (rec.phone == phone) { result.add(rec) };
@@ -360,7 +457,10 @@ actor {
   let deposits = Map.empty<Text, DepositRecord>();
   var depositCounter : Nat = 0;
 
-  public func requestDeposit(phone : Text, amount : Float, upiRef : Text) : async Text {
+  public shared ({ caller }) func requestDeposit(phone : Text, amount : Float, upiRef : Text) : async Text {
+    if (not isCallerPhoneOwner(caller, phone)) {
+      Runtime.trap("Unauthorized: Can only request deposit for your own account");
+    };
     if (amount <= 0.0) { Runtime.trap("Amount must be positive") };
     depositCounter := depositCounter + 1;
     let id = "DP" # depositCounter.toText();
@@ -373,20 +473,59 @@ actor {
     id;
   };
 
-  public func approveDeposit(id : Text) : async Bool {
+  // Modified approveDeposit for first deposit referral bonus
+  public shared ({ caller }) func approveDeposit(id : Text) : async Bool {
+    if (not AccessControl.isAdmin(accessControlState, caller)) {
+      Runtime.trap("Unauthorized: Only admins can approve deposits");
+    };
     switch (deposits.get(id)) {
       case (?rec) {
         if (rec.status != #pending) { return false };
         let curBal = switch (phoneBalances.get(rec.phone)) { case (?b) b; case null 0.0 };
         phoneBalances.add(rec.phone, curBal + rec.amount);
         deposits.add(id, { rec with status = #approved });
+
+        // Check if this is first deposit
+        let hasDeposited = switch (phoneFirstDeposited.get(rec.phone)) {
+          case (null) { false };
+          case (?b) { b };
+        };
+
+        if (not hasDeposited) {
+          phoneFirstDeposited.add(rec.phone, true);
+          switch (referrerOf.get(rec.phone)) {
+            case (null) {};
+            case (?referrer) {
+              let refBal = switch (phoneBalances.get(referrer)) { case (?b) b; case null 0.0 };
+              phoneBalances.add(referrer, refBal + 100.0);
+
+              // Update referral record for referrer
+              let existing = switch (referralBonuses.get(referrer)) {
+                case (null) { [] };
+                case (?arr) { arr };
+              };
+              let updated = Array.tabulate(existing.size(), func(i) {
+                let oldRec = existing[i];
+                if (oldRec.referredPhone == rec.phone) {
+                  { oldRec with depositBonusPaid = true; timestamp = Time.now() }
+                } else {
+                  oldRec
+                }
+              });
+              referralBonuses.add(referrer, updated);
+            };
+          };
+        };
         true;
       };
       case null { false };
     };
   };
 
-  public func rejectDeposit(id : Text) : async Bool {
+  public shared ({ caller }) func rejectDeposit(id : Text) : async Bool {
+    if (not AccessControl.isAdmin(accessControlState, caller)) {
+      Runtime.trap("Unauthorized: Only admins can reject deposits");
+    };
     switch (deposits.get(id)) {
       case (?rec) {
         if (rec.status != #pending) { return false };
@@ -397,7 +536,10 @@ actor {
     };
   };
 
-  public query func getAllDeposits() : async [DepositRecord] {
+  public query ({ caller }) func getAllDeposits() : async [DepositRecord] {
+    if (not AccessControl.isAdmin(accessControlState, caller)) {
+      Runtime.trap("Unauthorized: Only admins can view all deposits");
+    };
     let result = List.empty<DepositRecord>();
     for ((_, rec) in deposits.entries()) {
       result.add(rec);
@@ -405,12 +547,93 @@ actor {
     result.toVarArray().toArray();
   };
 
-  public query func getMyDeposits(phone : Text) : async [DepositRecord] {
+  public query ({ caller }) func getMyDeposits(phone : Text) : async [DepositRecord] {
+    if (not isCallerPhoneOwner(caller, phone)) {
+      Runtime.trap("Unauthorized: Can only view your own deposits");
+    };
     let result = List.empty<DepositRecord>();
     for ((_, rec) in deposits.entries()) {
       if (rec.phone == phone) { result.add(rec) };
     };
     result.toVarArray().toArray();
+  };
+
+  // ===== REFERRAL APIS =====
+  func generateReferralCode(phone : Text) : Text {
+    let chars = phone.toArray();
+    let len = chars.size();
+    if (len <= 6) {
+      return "FW" # phone;
+    };
+    let start = len - 6;
+
+    let digitsArray = chars.sliceToArray(0, start);
+
+    let digits = Text.fromArray(digitsArray);
+    "FW" # digits;
+  };
+
+  public query ({ caller }) func getReferralCode(phone : Text) : async Text {
+    if (not isCallerPhoneOwner(caller, phone) and not AccessControl.isAdmin(accessControlState, caller)) {
+      Runtime.trap("Unauthorized: Can only get your own referral code");
+    };
+    switch (phoneReferralCodes.get(phone)) {
+      case (?code) { code };
+      case null {
+        // Return generated code but don't store (query function)
+        generateReferralCode(phone);
+      };
+    };
+  };
+
+  public shared ({ caller }) func applyReferralCode(newUserPhone : Text, code : Text) : async Bool {
+    if (not isCallerPhoneOwner(caller, newUserPhone)) {
+      Runtime.trap("Unauthorized: Can only apply referral code to your own account");
+    };
+    switch (reverseReferralCodes.get(code)) {
+      case (null) { false };
+      case (?referrerPhone) {
+        if (referrerPhone == newUserPhone) { return false };
+        switch (referrerOf.get(newUserPhone)) {
+          case (null) {
+            referrerOf.add(newUserPhone, referrerPhone);
+            let newRecord : ReferralRecord = {
+              referredPhone = newUserPhone;
+              signupBonusPaid = true;
+              depositBonusPaid = false;
+              timestamp = Time.now();
+            };
+
+            let existing = switch (referralBonuses.get(referrerPhone)) {
+              case (null) { [] };
+              case (?arr) { arr };
+            };
+            referralBonuses.add(
+              referrerPhone,
+              Array.tabulate(existing.size() + 1, func(i) { if (i < existing.size()) { existing[i] } else { newRecord } }),
+            );
+
+            let curBal = switch (phoneBalances.get(newUserPhone)) {
+              case (?b) { b };
+              case null { 0.0 };
+            };
+            phoneBalances.add(newUserPhone, curBal + 20.0);
+            true;
+          };
+          case (?_) { false };
+        };
+      };
+    };
+  };
+
+  public query ({ caller }) func getReferralHistory(phone : Text) : async [ReferralRecord] {
+    if (not isCallerPhoneOwner(caller, phone) and not AccessControl.isAdmin(accessControlState, caller)) {
+      Runtime.trap("Unauthorized: Can only view your own referral history");
+    };
+    switch (referralBonuses.get(phone)) {
+      case (null) { [] };
+      case (?arr) { arr };
+    };
   };
 
   // ===== ADMIN USER MANAGEMENT =====
@@ -421,7 +644,10 @@ actor {
     blocked : Bool;
   };
 
-  public query func getAllUsers() : async [UserSummary] {
+  public query ({ caller }) func getAllUsers() : async [UserSummary] {
+    if (not AccessControl.isAdmin(accessControlState, caller)) {
+      Runtime.trap("Unauthorized: Only admins can view all users");
+    };
     let result = List.empty<UserSummary>();
     for ((phone, _) in phoneIndex.entries()) {
       let bal = switch (phoneBalances.get(phone)) { case (?b) b; case null 0.0 };
@@ -432,7 +658,10 @@ actor {
     result.toVarArray().toArray();
   };
 
-  public func blockUser(phone : Text) : async Bool {
+  public shared ({ caller }) func blockUser(phone : Text) : async Bool {
+    if (not AccessControl.isAdmin(accessControlState, caller)) {
+      Runtime.trap("Unauthorized: Only admins can block users");
+    };
     switch (phoneIndex.get(phone)) {
       case (?_) {
         phoneBlocked.add(phone, true);
@@ -442,7 +671,10 @@ actor {
     };
   };
 
-  public func unblockUser(phone : Text) : async Bool {
+  public shared ({ caller }) func unblockUser(phone : Text) : async Bool {
+    if (not AccessControl.isAdmin(accessControlState, caller)) {
+      Runtime.trap("Unauthorized: Only admins can unblock users");
+    };
     switch (phoneIndex.get(phone)) {
       case (?_) {
         phoneBlocked.add(phone, false);
@@ -452,7 +684,10 @@ actor {
     };
   };
 
-  public func adjustBalance(phone : Text, newBalance : Float) : async Bool {
+  public shared ({ caller }) func adjustBalance(phone : Text, newBalance : Float) : async Bool {
+    if (not AccessControl.isAdmin(accessControlState, caller)) {
+      Runtime.trap("Unauthorized: Only admins can adjust balances");
+    };
     switch (phoneIndex.get(phone)) {
       case (?_) {
         phoneBalances.add(phone, newBalance);
@@ -592,8 +827,8 @@ actor {
   };
 
   public shared ({ caller }) func lockRound(mode : Text) : async () {
-    if (not isRegisteredUser(caller)) {
-      Runtime.trap("Unauthorized: Must be registered to lock rounds");
+    if (not AccessControl.isAdmin(accessControlState, caller)) {
+      Runtime.trap("Unauthorized: Only admins can lock rounds");
     };
     let round = getRound(mode);
     if (round.status == #open) {
@@ -602,8 +837,8 @@ actor {
   };
 
   public shared ({ caller }) func settleRound(mode : Text) : async RoundResult {
-    if (not isRegisteredUser(caller)) {
-      Runtime.trap("Unauthorized: Must be registered to settle rounds");
+    if (not AccessControl.isAdmin(accessControlState, caller)) {
+      Runtime.trap("Unauthorized: Only admins can settle rounds");
     };
     let round = getRound(mode);
     if (round.status == #settled) { Runtime.trap("Round already settled") };

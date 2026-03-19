@@ -19,7 +19,7 @@ import { useEffect, useState } from "react";
 
 const queryClient = new QueryClient();
 
-export const ADMIN_PHONE = "9999999999";
+export const ADMIN_PHONE = "8200321382";
 
 const GAME_MODES = [
   {

@@ -26,9 +26,26 @@ export type BetTarget = { 'color' : Color } |
 export type Color = { 'red' : null } |
   { 'purple' : null } |
   { 'green' : null };
+export interface DepositRecord {
+  'id' : string,
+  'status' : DepositStatus,
+  'upiRef' : string,
+  'timestamp' : bigint,
+  'phone' : string,
+  'amount' : number,
+}
+export type DepositStatus = { 'pending' : null } |
+  { 'approved' : null } |
+  { 'rejected' : null };
 export interface GameState {
   'lastResults' : Array<RoundResult>,
   'currentRound' : Round,
+}
+export interface ReferralRecord {
+  'referredPhone' : string,
+  'signupBonusPaid' : boolean,
+  'timestamp' : bigint,
+  'depositBonusPaid' : boolean,
 }
 export interface Round {
   'status' : RoundStatus,
@@ -53,24 +70,63 @@ export interface UserProfile { 'name' : string, 'phone' : string }
 export type UserRole = { 'admin' : null } |
   { 'user' : null } |
   { 'guest' : null };
+export interface UserSummary {
+  'balance' : number,
+  'blocked' : boolean,
+  'phone' : string,
+  'registeredAt' : bigint,
+}
+export interface WithdrawalRecord {
+  'id' : string,
+  'status' : WithdrawalStatus,
+  'timestamp' : bigint,
+  'upiId' : string,
+  'phone' : string,
+  'amount' : number,
+}
+export type WithdrawalStatus = { 'pending' : null } |
+  { 'approved' : null } |
+  { 'rejected' : null };
 export interface _SERVICE {
   '_initializeAccessControlWithSecret' : ActorMethod<[string], undefined>,
+  'adjustBalance' : ActorMethod<[string, number], boolean>,
+  'applyReferralCode' : ActorMethod<[string, string], boolean>,
+  'approveDeposit' : ActorMethod<[string], boolean>,
+  'approveWithdrawal' : ActorMethod<[string], boolean>,
   'assignCallerUserRole' : ActorMethod<[Principal, UserRole], undefined>,
+  'blockUser' : ActorMethod<[string], boolean>,
+  'changePassword' : ActorMethod<[string, string], boolean>,
   'deposit' : ActorMethod<[number], undefined>,
+  'getAllDeposits' : ActorMethod<[], Array<DepositRecord>>,
+  'getAllUsers' : ActorMethod<[], Array<UserSummary>>,
+  'getAllWithdrawals' : ActorMethod<[], Array<WithdrawalRecord>>,
   'getAuthStatus' : ActorMethod<[], AuthStatus>,
   'getBalance' : ActorMethod<[], number>,
+  'getBalanceByPhone' : ActorMethod<[string], number>,
   'getCallerUserProfile' : ActorMethod<[], [] | [UserProfile]>,
   'getCallerUserRole' : ActorMethod<[], UserRole>,
   'getGameState' : ActorMethod<[string], GameState>,
+  'getMyDeposits' : ActorMethod<[string], Array<DepositRecord>>,
+  'getMyWithdrawals' : ActorMethod<[string], Array<WithdrawalRecord>>,
+  'getReferralCode' : ActorMethod<[string], string>,
+  'getReferralHistory' : ActorMethod<[string], Array<ReferralRecord>>,
   'getUserBets' : ActorMethod<[string, bigint], Array<Bet>>,
   'getUserProfile' : ActorMethod<[Principal], [] | [UserProfile]>,
   'isCallerAdmin' : ActorMethod<[], boolean>,
+  'isPhoneRegistered' : ActorMethod<[string], boolean>,
   'lockRound' : ActorMethod<[string], undefined>,
   'placeBet' : ActorMethod<[string, BetTarget, number], undefined>,
+  'rejectDeposit' : ActorMethod<[string], boolean>,
+  'rejectWithdrawal' : ActorMethod<[string], boolean>,
+  'requestDeposit' : ActorMethod<[string, number, string], string>,
+  'requestLoginOtp' : ActorMethod<[string], [] | [string]>,
   'requestOtp' : ActorMethod<[string], string>,
+  'requestWithdrawal' : ActorMethod<[string, number, string], string>,
   'saveCallerUserProfile' : ActorMethod<[UserProfile], undefined>,
-  'setPassword' : ActorMethod<[string], boolean>,
+  'setPassword' : ActorMethod<[string, [] | [string]], boolean>,
   'settleRound' : ActorMethod<[string], RoundResult>,
+  'unblockUser' : ActorMethod<[string], boolean>,
+  'verifyLoginWithOtp' : ActorMethod<[string, string, string], boolean>,
   'verifyOtp' : ActorMethod<[string], boolean>,
 }
 export declare const idlService: IDL.ServiceClass;

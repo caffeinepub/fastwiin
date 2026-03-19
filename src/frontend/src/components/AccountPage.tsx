@@ -1,9 +1,11 @@
+import type { ReferralRecord } from "@/backend";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useActor } from "@/hooks/useActor";
 import { useInternetIdentity } from "@/hooks/useInternetIdentity";
 import { useLocalHistory } from "@/hooks/useLocalHistory";
 import {
@@ -14,10 +16,12 @@ import {
   useRequestWithdrawal,
 } from "@/hooks/useQueries";
 import { useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   BookOpen,
   Check,
   Copy,
+  Gift,
   KeyRound,
   Lock,
   LogOut,
@@ -25,6 +29,7 @@ import {
   Shield,
   Smartphone,
   User,
+  Users,
   Wallet,
 } from "lucide-react";
 import { useState } from "react";
@@ -296,7 +301,7 @@ export default function AccountPage({
 
       <Tabs defaultValue="profile" className="w-full">
         <TabsList
-          className="w-full grid grid-cols-5 mb-4 h-auto"
+          className="w-full grid grid-cols-6 mb-4 h-auto"
           style={{
             background: "oklch(0.10 0 0)",
             border: "1px solid oklch(0.18 0 0)",
@@ -308,6 +313,7 @@ export default function AccountPage({
             { value: "withdraw", label: t("withdraw") },
             { value: "bets", label: t("betHistory") },
             { value: "guide", label: t("beginnerGuide") },
+            { value: "referral", label: "Invite" },
           ].map((tab) => (
             <TabsTrigger
               key={tab.value}
@@ -941,7 +947,207 @@ export default function AccountPage({
             </div>
           </div>
         </TabsContent>
+
+        {/* REFERRAL TAB */}
+        <TabsContent value="referral" className="mt-0">
+          <ReferralTab phone={phone} />
+        </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+// ── Referral Tab Component ────────────────────────────────────────────────────
+function ReferralTab({ phone }: { phone: string }) {
+  const { actor } = useActor();
+  const [copied, setCopied] = useState(false);
+
+  const { data: referralCode, isLoading: codeLoading } = useQuery<string>({
+    queryKey: ["referralCode", phone],
+    queryFn: async () => {
+      if (!actor) return "";
+      return actor.getReferralCode(phone);
+    },
+    enabled: !!actor && !!phone,
+  });
+
+  const { data: referralHistory, isLoading: histLoading } = useQuery<
+    ReferralRecord[]
+  >({
+    queryKey: ["referralHistory", phone],
+    queryFn: async () => {
+      if (!actor) return [];
+      return actor.getReferralHistory(phone);
+    },
+    enabled: !!actor && !!phone,
+  });
+
+  const copyCode = () => {
+    if (!referralCode) return;
+    navigator.clipboard.writeText(referralCode);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+    toast.success("Referral code copied!");
+  };
+
+  const maskPhone = (p: string) => `****${p.slice(-4)}`;
+
+  const formatDate = (ts: bigint) => {
+    return new Date(Number(ts) / 1_000_000).toLocaleDateString("en-IN");
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Header card */}
+      <div className="card-surface p-5 space-y-4" data-ocid="referral.card">
+        <div className="flex items-center gap-2 mb-1">
+          <Gift className="w-5 h-5 text-cta" />
+          <h3 className="font-black text-base uppercase tracking-wide">
+            Invite Friends
+          </h3>
+        </div>
+        <div
+          className="rounded-lg p-3 text-center space-y-1"
+          style={{
+            background: "oklch(0.10 0 0)",
+            border: "1px solid oklch(0.22 0 0)",
+          }}
+        >
+          <p className="text-xs text-muted-foreground uppercase tracking-widest">
+            Your Referral Code
+          </p>
+          {codeLoading ? (
+            <div
+              className="h-8 w-32 mx-auto rounded animate-pulse"
+              style={{ background: "oklch(0.18 0 0)" }}
+            />
+          ) : (
+            <p className="text-2xl font-black tracking-widest text-cta">
+              {referralCode || "—"}
+            </p>
+          )}
+        </div>
+        <Button
+          data-ocid="referral.copy_button"
+          onClick={copyCode}
+          disabled={!referralCode || codeLoading}
+          className="w-full font-bold"
+          style={{
+            background: "oklch(0.20 0 0)",
+            color: "oklch(0.90 0 0)",
+            border: "1px solid oklch(0.30 0 0)",
+          }}
+        >
+          {copied ? (
+            <Check className="w-4 h-4 mr-2" />
+          ) : (
+            <Copy className="w-4 h-4 mr-2" />
+          )}
+          {copied ? "Copied!" : "Copy Code"}
+        </Button>
+        <div
+          className="rounded-lg p-3 space-y-1 text-sm"
+          style={{
+            background: "oklch(0.08 0 0)",
+            border: "1px solid oklch(0.18 0 0)",
+          }}
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-game-green font-bold">₹20</span>
+            <span className="text-muted-foreground">
+              — Your friend gets ₹20 bonus on signup
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-game-green font-bold">₹100</span>
+            <span className="text-muted-foreground">
+              — You get ₹100 when they make their first deposit
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Referral history */}
+      <div className="card-surface p-5 space-y-3" data-ocid="referral.table">
+        <div className="flex items-center gap-2">
+          <Users className="w-4 h-4 text-muted-foreground" />
+          <h4 className="font-bold text-sm uppercase tracking-wide">
+            Referral History
+          </h4>
+        </div>
+        {histLoading ? (
+          <div className="space-y-2" data-ocid="referral.loading_state">
+            {[1, 2].map((i) => (
+              <div
+                key={i}
+                className="h-10 rounded animate-pulse"
+                style={{ background: "oklch(0.12 0 0)" }}
+              />
+            ))}
+          </div>
+        ) : !referralHistory || referralHistory.length === 0 ? (
+          <div
+            className="text-center py-8 text-muted-foreground text-sm"
+            data-ocid="referral.empty_state"
+          >
+            <Gift className="w-8 h-8 mx-auto mb-2 opacity-30" />
+            <p>No referrals yet. Share your code to start earning!</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr style={{ borderBottom: "1px solid oklch(0.18 0 0)" }}>
+                  <th className="text-left py-2 text-muted-foreground font-medium">
+                    Phone
+                  </th>
+                  <th className="text-center py-2 text-muted-foreground font-medium">
+                    Signup
+                  </th>
+                  <th className="text-center py-2 text-muted-foreground font-medium">
+                    Deposit
+                  </th>
+                  <th className="text-right py-2 text-muted-foreground font-medium">
+                    Date
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {referralHistory.map((r, i) => (
+                  <tr
+                    key={`${r.referredPhone}-${String(r.timestamp)}`}
+                    data-ocid={`referral.item.${i + 1}`}
+                    style={{ borderBottom: "1px solid oklch(0.12 0 0)" }}
+                  >
+                    <td className="py-2 font-mono font-bold">
+                      {maskPhone(r.referredPhone)}
+                    </td>
+                    <td className="py-2 text-center">
+                      {r.signupBonusPaid ? (
+                        <span className="text-game-green font-bold">✓ ₹20</span>
+                      ) : (
+                        <span className="text-muted-foreground">Pending</span>
+                      )}
+                    </td>
+                    <td className="py-2 text-center">
+                      {r.depositBonusPaid ? (
+                        <span className="text-game-green font-bold">
+                          ✓ ₹100
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">Pending</span>
+                      )}
+                    </td>
+                    <td className="py-2 text-right text-muted-foreground">
+                      {formatDate(r.timestamp)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -13,6 +13,38 @@ export const UserRole = IDL.Variant({
   'user' : IDL.Null,
   'guest' : IDL.Null,
 });
+export const DepositStatus = IDL.Variant({
+  'pending' : IDL.Null,
+  'approved' : IDL.Null,
+  'rejected' : IDL.Null,
+});
+export const DepositRecord = IDL.Record({
+  'id' : IDL.Text,
+  'status' : DepositStatus,
+  'upiRef' : IDL.Text,
+  'timestamp' : IDL.Int,
+  'phone' : IDL.Text,
+  'amount' : IDL.Float64,
+});
+export const UserSummary = IDL.Record({
+  'balance' : IDL.Float64,
+  'blocked' : IDL.Bool,
+  'phone' : IDL.Text,
+  'registeredAt' : IDL.Int,
+});
+export const WithdrawalStatus = IDL.Variant({
+  'pending' : IDL.Null,
+  'approved' : IDL.Null,
+  'rejected' : IDL.Null,
+});
+export const WithdrawalRecord = IDL.Record({
+  'id' : IDL.Text,
+  'status' : WithdrawalStatus,
+  'timestamp' : IDL.Int,
+  'upiId' : IDL.Text,
+  'phone' : IDL.Text,
+  'amount' : IDL.Float64,
+});
 export const AuthStatus = IDL.Record({
   'otpVerified' : IDL.Bool,
   'phone' : IDL.Text,
@@ -52,6 +84,12 @@ export const GameState = IDL.Record({
   'lastResults' : IDL.Vec(RoundResult),
   'currentRound' : Round,
 });
+export const ReferralRecord = IDL.Record({
+  'referredPhone' : IDL.Text,
+  'signupBonusPaid' : IDL.Bool,
+  'timestamp' : IDL.Int,
+  'depositBonusPaid' : IDL.Bool,
+});
 export const BetTarget = IDL.Variant({ 'color' : Color, 'number' : IDL.Nat });
 export const Bet = IDL.Record({
   'mode' : IDL.Text,
@@ -62,13 +100,35 @@ export const Bet = IDL.Record({
 
 export const idlService = IDL.Service({
   '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
+  'adjustBalance' : IDL.Func([IDL.Text, IDL.Float64], [IDL.Bool], []),
+  'applyReferralCode' : IDL.Func([IDL.Text, IDL.Text], [IDL.Bool], []),
+  'approveDeposit' : IDL.Func([IDL.Text], [IDL.Bool], []),
+  'approveWithdrawal' : IDL.Func([IDL.Text], [IDL.Bool], []),
   'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
+  'blockUser' : IDL.Func([IDL.Text], [IDL.Bool], []),
+  'changePassword' : IDL.Func([IDL.Text, IDL.Text], [IDL.Bool], []),
   'deposit' : IDL.Func([IDL.Float64], [], []),
+  'getAllDeposits' : IDL.Func([], [IDL.Vec(DepositRecord)], ['query']),
+  'getAllUsers' : IDL.Func([], [IDL.Vec(UserSummary)], ['query']),
+  'getAllWithdrawals' : IDL.Func([], [IDL.Vec(WithdrawalRecord)], ['query']),
   'getAuthStatus' : IDL.Func([], [AuthStatus], ['query']),
   'getBalance' : IDL.Func([], [IDL.Float64], ['query']),
+  'getBalanceByPhone' : IDL.Func([IDL.Text], [IDL.Float64], ['query']),
   'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
   'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
   'getGameState' : IDL.Func([IDL.Text], [GameState], ['query']),
+  'getMyDeposits' : IDL.Func([IDL.Text], [IDL.Vec(DepositRecord)], ['query']),
+  'getMyWithdrawals' : IDL.Func(
+      [IDL.Text],
+      [IDL.Vec(WithdrawalRecord)],
+      ['query'],
+    ),
+  'getReferralCode' : IDL.Func([IDL.Text], [IDL.Text], ['query']),
+  'getReferralHistory' : IDL.Func(
+      [IDL.Text],
+      [IDL.Vec(ReferralRecord)],
+      ['query'],
+    ),
   'getUserBets' : IDL.Func([IDL.Text, IDL.Nat], [IDL.Vec(Bet)], ['query']),
   'getUserProfile' : IDL.Func(
       [IDL.Principal],
@@ -76,12 +136,32 @@ export const idlService = IDL.Service({
       ['query'],
     ),
   'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
+  'isPhoneRegistered' : IDL.Func([IDL.Text], [IDL.Bool], ['query']),
   'lockRound' : IDL.Func([IDL.Text], [], []),
   'placeBet' : IDL.Func([IDL.Text, BetTarget, IDL.Float64], [], []),
+  'rejectDeposit' : IDL.Func([IDL.Text], [IDL.Bool], []),
+  'rejectWithdrawal' : IDL.Func([IDL.Text], [IDL.Bool], []),
+  'requestDeposit' : IDL.Func(
+      [IDL.Text, IDL.Float64, IDL.Text],
+      [IDL.Text],
+      [],
+    ),
+  'requestLoginOtp' : IDL.Func([IDL.Text], [IDL.Opt(IDL.Text)], []),
   'requestOtp' : IDL.Func([IDL.Text], [IDL.Text], []),
+  'requestWithdrawal' : IDL.Func(
+      [IDL.Text, IDL.Float64, IDL.Text],
+      [IDL.Text],
+      [],
+    ),
   'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
-  'setPassword' : IDL.Func([IDL.Text], [IDL.Bool], []),
+  'setPassword' : IDL.Func([IDL.Text, IDL.Opt(IDL.Text)], [IDL.Bool], []),
   'settleRound' : IDL.Func([IDL.Text], [RoundResult], []),
+  'unblockUser' : IDL.Func([IDL.Text], [IDL.Bool], []),
+  'verifyLoginWithOtp' : IDL.Func(
+      [IDL.Text, IDL.Text, IDL.Text],
+      [IDL.Bool],
+      [],
+    ),
   'verifyOtp' : IDL.Func([IDL.Text], [IDL.Bool], []),
 });
 
@@ -92,6 +172,38 @@ export const idlFactory = ({ IDL }) => {
     'admin' : IDL.Null,
     'user' : IDL.Null,
     'guest' : IDL.Null,
+  });
+  const DepositStatus = IDL.Variant({
+    'pending' : IDL.Null,
+    'approved' : IDL.Null,
+    'rejected' : IDL.Null,
+  });
+  const DepositRecord = IDL.Record({
+    'id' : IDL.Text,
+    'status' : DepositStatus,
+    'upiRef' : IDL.Text,
+    'timestamp' : IDL.Int,
+    'phone' : IDL.Text,
+    'amount' : IDL.Float64,
+  });
+  const UserSummary = IDL.Record({
+    'balance' : IDL.Float64,
+    'blocked' : IDL.Bool,
+    'phone' : IDL.Text,
+    'registeredAt' : IDL.Int,
+  });
+  const WithdrawalStatus = IDL.Variant({
+    'pending' : IDL.Null,
+    'approved' : IDL.Null,
+    'rejected' : IDL.Null,
+  });
+  const WithdrawalRecord = IDL.Record({
+    'id' : IDL.Text,
+    'status' : WithdrawalStatus,
+    'timestamp' : IDL.Int,
+    'upiId' : IDL.Text,
+    'phone' : IDL.Text,
+    'amount' : IDL.Float64,
   });
   const AuthStatus = IDL.Record({
     'otpVerified' : IDL.Bool,
@@ -129,6 +241,12 @@ export const idlFactory = ({ IDL }) => {
     'lastResults' : IDL.Vec(RoundResult),
     'currentRound' : Round,
   });
+  const ReferralRecord = IDL.Record({
+    'referredPhone' : IDL.Text,
+    'signupBonusPaid' : IDL.Bool,
+    'timestamp' : IDL.Int,
+    'depositBonusPaid' : IDL.Bool,
+  });
   const BetTarget = IDL.Variant({ 'color' : Color, 'number' : IDL.Nat });
   const Bet = IDL.Record({
     'mode' : IDL.Text,
@@ -139,13 +257,35 @@ export const idlFactory = ({ IDL }) => {
   
   return IDL.Service({
     '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
+    'adjustBalance' : IDL.Func([IDL.Text, IDL.Float64], [IDL.Bool], []),
+    'applyReferralCode' : IDL.Func([IDL.Text, IDL.Text], [IDL.Bool], []),
+    'approveDeposit' : IDL.Func([IDL.Text], [IDL.Bool], []),
+    'approveWithdrawal' : IDL.Func([IDL.Text], [IDL.Bool], []),
     'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
+    'blockUser' : IDL.Func([IDL.Text], [IDL.Bool], []),
+    'changePassword' : IDL.Func([IDL.Text, IDL.Text], [IDL.Bool], []),
     'deposit' : IDL.Func([IDL.Float64], [], []),
+    'getAllDeposits' : IDL.Func([], [IDL.Vec(DepositRecord)], ['query']),
+    'getAllUsers' : IDL.Func([], [IDL.Vec(UserSummary)], ['query']),
+    'getAllWithdrawals' : IDL.Func([], [IDL.Vec(WithdrawalRecord)], ['query']),
     'getAuthStatus' : IDL.Func([], [AuthStatus], ['query']),
     'getBalance' : IDL.Func([], [IDL.Float64], ['query']),
+    'getBalanceByPhone' : IDL.Func([IDL.Text], [IDL.Float64], ['query']),
     'getCallerUserProfile' : IDL.Func([], [IDL.Opt(UserProfile)], ['query']),
     'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
     'getGameState' : IDL.Func([IDL.Text], [GameState], ['query']),
+    'getMyDeposits' : IDL.Func([IDL.Text], [IDL.Vec(DepositRecord)], ['query']),
+    'getMyWithdrawals' : IDL.Func(
+        [IDL.Text],
+        [IDL.Vec(WithdrawalRecord)],
+        ['query'],
+      ),
+    'getReferralCode' : IDL.Func([IDL.Text], [IDL.Text], ['query']),
+    'getReferralHistory' : IDL.Func(
+        [IDL.Text],
+        [IDL.Vec(ReferralRecord)],
+        ['query'],
+      ),
     'getUserBets' : IDL.Func([IDL.Text, IDL.Nat], [IDL.Vec(Bet)], ['query']),
     'getUserProfile' : IDL.Func(
         [IDL.Principal],
@@ -153,12 +293,32 @@ export const idlFactory = ({ IDL }) => {
         ['query'],
       ),
     'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
+    'isPhoneRegistered' : IDL.Func([IDL.Text], [IDL.Bool], ['query']),
     'lockRound' : IDL.Func([IDL.Text], [], []),
     'placeBet' : IDL.Func([IDL.Text, BetTarget, IDL.Float64], [], []),
+    'rejectDeposit' : IDL.Func([IDL.Text], [IDL.Bool], []),
+    'rejectWithdrawal' : IDL.Func([IDL.Text], [IDL.Bool], []),
+    'requestDeposit' : IDL.Func(
+        [IDL.Text, IDL.Float64, IDL.Text],
+        [IDL.Text],
+        [],
+      ),
+    'requestLoginOtp' : IDL.Func([IDL.Text], [IDL.Opt(IDL.Text)], []),
     'requestOtp' : IDL.Func([IDL.Text], [IDL.Text], []),
+    'requestWithdrawal' : IDL.Func(
+        [IDL.Text, IDL.Float64, IDL.Text],
+        [IDL.Text],
+        [],
+      ),
     'saveCallerUserProfile' : IDL.Func([UserProfile], [], []),
-    'setPassword' : IDL.Func([IDL.Text], [IDL.Bool], []),
+    'setPassword' : IDL.Func([IDL.Text, IDL.Opt(IDL.Text)], [IDL.Bool], []),
     'settleRound' : IDL.Func([IDL.Text], [RoundResult], []),
+    'unblockUser' : IDL.Func([IDL.Text], [IDL.Bool], []),
+    'verifyLoginWithOtp' : IDL.Func(
+        [IDL.Text, IDL.Text, IDL.Text],
+        [IDL.Bool],
+        [],
+      ),
     'verifyOtp' : IDL.Func([IDL.Text], [IDL.Bool], []),
   });
 };

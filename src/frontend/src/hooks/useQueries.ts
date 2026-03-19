@@ -119,8 +119,12 @@ export function useVerifyOtp() {
 export function useSetPassword() {
   const { actor, isFetching } = useActor();
   const qc = useQueryClient();
-  const mutation = useMutation<boolean, Error, string>({
-    mutationFn: async (password: string) => {
+  const mutation = useMutation<
+    boolean,
+    Error,
+    { password: string; referralCode: string | null }
+  >({
+    mutationFn: async ({ password, referralCode }) => {
       const a =
         actor ||
         (qc
@@ -129,7 +133,7 @@ export function useSetPassword() {
           .find((q) => q.queryKey[0] === "actor")?.state.data as any);
       if (!a)
         throw new Error("App is still loading. Please wait and try again.");
-      return a.setPassword(password);
+      return a.setPassword(password, referralCode);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["authStatus"] });
