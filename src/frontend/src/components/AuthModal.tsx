@@ -8,7 +8,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  useAuthStatus,
   useRequestOtp,
   useSetPassword,
   useVerifyOtp,
@@ -71,9 +70,8 @@ export default function AuthModal({
   const [resendingOtp, setResendingOtp] = useState(false);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Wait for a real backend response before allowing OTP send
-  const { isLoading: authChecking, data: authData } = useAuthStatus();
-  const isBackendReady = !!authData && !authChecking;
+  // Fix: actor object is a local proxy, always available once initialized.
+  // Remove !actorFetching condition -- it was keeping the button stuck on "Connecting..."
 
   useEffect(() => {
     if (open) {
@@ -132,10 +130,6 @@ export default function AuthModal({
   };
 
   const handleRequestOtp = async () => {
-    if (!isBackendReady) {
-      toast.error("App is still connecting, please wait a moment");
-      return;
-    }
     if (!phone.trim()) {
       toast.error("Enter a valid phone number");
       return;
@@ -145,7 +139,7 @@ export default function AuthModal({
   };
 
   const handleResendOtp = async () => {
-    if (!isBackendReady || resendingOtp || isSendingOtp) return;
+    if (resendingOtp || isSendingOtp) return;
     setResendingOtp(true);
     setOtp("");
     await sendOtpWithRetry(phone.trim());
@@ -267,17 +261,6 @@ export default function AuthModal({
                   />
                 </div>
 
-                {/* Backend connecting indicator */}
-                {!isBackendReady && (
-                  <div
-                    className="flex items-center gap-2 text-xs text-muted-foreground"
-                    data-ocid="auth.loading_state"
-                  >
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                    <span>Connecting to server...</span>
-                  </div>
-                )}
-
                 {/* Retry progress indicator */}
                 {otpRetries > 0 && (
                   <motion.div
@@ -351,17 +334,13 @@ export default function AuthModal({
                 <Button
                   data-ocid="auth.primary_button"
                   onClick={handleRequestOtp}
-                  disabled={isSendingOtp || !isBackendReady}
+                  disabled={isSendingOtp}
                   className="w-full bg-cta text-cta-foreground hover:bg-cta/90 font-bold"
                 >
-                  {(isSendingOtp || !isBackendReady) && (
+                  {isSendingOtp && (
                     <Loader2 className="w-4 h-4 animate-spin mr-2" />
                   )}
-                  {!isBackendReady
-                    ? "Connecting..."
-                    : isSendingOtp
-                      ? "Sending OTP..."
-                      : "Send OTP"}
+                  {isSendingOtp ? "Sending OTP..." : "Send OTP"}
                 </Button>
                 <button
                   type="button"
@@ -457,7 +436,7 @@ export default function AuthModal({
                     type="button"
                     data-ocid="auth.secondary_button"
                     onClick={handleResendOtp}
-                    disabled={isSendingOtp || !isBackendReady}
+                    disabled={isSendingOtp}
                     className="w-full text-center text-xs text-cta hover:text-cta/80 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1"
                   >
                     {isSendingOtp && resendingOtp ? (

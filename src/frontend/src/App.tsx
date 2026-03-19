@@ -125,7 +125,9 @@ function AppContent() {
 
   const isRegistered = authStatus?.registered ?? false;
   const registeredPhone = authStatus?.phone ?? "";
-  const isLoggedIn = loggedIn && isRegistered;
+  // Fix: isLoggedIn depends only on local state, not backend registration status
+  // This prevents users from appearing logged out when the backend is cold/slow
+  const isLoggedIn = loggedIn;
   const phone = authStatus?.phone ?? "";
   const isAdmin = isLoggedIn && phone === ADMIN_PHONE;
 

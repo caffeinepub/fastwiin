@@ -8,29 +8,33 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useActor } from "@/hooks/useActor";
-import {
-  useApproveDeposit,
-  useAuthStatus,
-  useRequestDeposit,
-} from "@/hooks/useQueries";
-import { openRazorpayCheckout } from "@/lib/razorpay";
+import { useAuthStatus, useRequestDeposit } from "@/hooks/useQueries";
 import { useQueryClient } from "@tanstack/react-query";
-import { Loader2, Lock, Plus } from "lucide-react";
+import { Check, Copy, Lock, Plus, Smartphone } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+
+const PLATFORM_UPI = "ankitzapda7@okicici";
 
 export default function DepositModal() {
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState("500");
+  const [utrRef, setUtrRef] = useState("");
   const [loading, setLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const { data: authStatus } = useAuthStatus();
   const phone = authStatus?.phone ?? "";
 
   const requestDeposit = useRequestDeposit();
-  const approveDeposit = useApproveDeposit();
   const qc = useQueryClient();
+
+  const handleCopyUpi = () => {
+    navigator.clipboard.writeText(PLATFORM_UPI);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+    toast.success("UPI ID copied!");
+  };
 
   const handleDeposit = async () => {
     const n = Number.parseInt(amount, 10);
@@ -42,27 +46,24 @@ export default function DepositModal() {
       toast.error("Maximum deposit is ₹10,000");
       return;
     }
+    if (!utrRef.trim()) {
+      toast.error("Enter UTR / Transaction ID");
+      return;
+    }
     setLoading(true);
-    let depositId: string | null = null;
     try {
-      depositId = await requestDeposit.mutateAsync({
+      await requestDeposit.mutateAsync({
         phone,
         amount: n,
-        upiRef: "razorpay",
+        upiRef: utrRef.trim(),
       });
-      await openRazorpayCheckout(n, phone);
-      await approveDeposit.mutateAsync(depositId);
-      toast.success(`₹${n} deposited successfully!`);
-      qc.invalidateQueries({ queryKey: ["balance"] });
+      toast.success("Deposit request submitted! Awaiting admin approval.");
       qc.invalidateQueries({ queryKey: ["myDeposits"] });
+      setAmount("500");
+      setUtrRef("");
       setOpen(false);
-    } catch (err: any) {
-      const msg = err?.message ?? "";
-      if (msg === "Payment cancelled") {
-        toast.error("Payment cancelled");
-      } else {
-        toast.error("Deposit failed. Please try again.");
-      }
+    } catch {
+      toast.error("Deposit failed. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -85,9 +86,43 @@ export default function DepositModal() {
         data-ocid="deposit.dialog"
       >
         <DialogHeader>
-          <DialogTitle>Deposit Funds</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            <Smartphone className="w-4 h-4 text-cta" /> UPI Deposit
+          </DialogTitle>
         </DialogHeader>
         <div className="space-y-4 pt-2">
+          <div
+            className="rounded-lg px-3 py-2 text-xs leading-relaxed"
+            style={{
+              background: "oklch(0.48 0.22 296 / 0.10)",
+              color: "oklch(0.70 0.18 296)",
+            }}
+          >
+            Balance is credited after admin confirms your payment.
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-xs uppercase tracking-widest text-muted-foreground">
+              Send to UPI ID
+            </Label>
+            <div className="flex items-center gap-2 rounded-lg px-3 py-2.5 border border-border bg-input">
+              <span className="flex-1 font-mono text-sm font-bold text-cta">
+                {PLATFORM_UPI}
+              </span>
+              <button
+                type="button"
+                onClick={handleCopyUpi}
+                className="text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {copied ? (
+                  <Check className="w-4 h-4 text-game-green" />
+                ) : (
+                  <Copy className="w-4 h-4" />
+                )}
+              </button>
+            </div>
+          </div>
+
           <div className="space-y-1.5">
             <Label htmlFor="dep-amount">Amount (₹)</Label>
             <div className="relative">
@@ -118,18 +153,34 @@ export default function DepositModal() {
               </button>
             ))}
           </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-xs uppercase tracking-widest text-muted-foreground">
+              UTR / Transaction ID
+            </Label>
+            <Input
+              data-ocid="deposit.textarea"
+              type="text"
+              placeholder="Enter UTR / Transaction ID"
+              value={utrRef}
+              onChange={(e) => setUtrRef(e.target.value)}
+              className="bg-input border-border"
+            />
+          </div>
+
           <Button
             data-ocid="deposit.submit_button"
             onClick={handleDeposit}
             disabled={loading}
             className="w-full bg-cta text-cta-foreground hover:bg-cta/90 font-bold"
           >
-            {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-            {loading ? "Processing..." : `Pay ₹${amount || 0} via Razorpay`}
+            {loading
+              ? "Submitting..."
+              : `Submit Deposit Request ₹${amount || 0}`}
           </Button>
           <p className="text-[10px] text-muted-foreground text-center flex items-center justify-center gap-1">
             <Lock className="w-2.5 h-2.5" />
-            Powered by Razorpay · Test Mode
+            Balance credited after admin confirms payment
           </p>
         </div>
       </DialogContent>

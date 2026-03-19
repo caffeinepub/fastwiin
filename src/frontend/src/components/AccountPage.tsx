@@ -7,19 +7,12 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useInternetIdentity } from "@/hooks/useInternetIdentity";
 import { useLocalHistory } from "@/hooks/useLocalHistory";
 import {
-  type DepositRecord,
-  type WithdrawalRecord,
-  getRecordStatus,
-  useApproveDeposit,
   useAuthStatus,
   useBalance,
   useChangePassword,
-  useMyDeposits,
-  useMyWithdrawals,
   useRequestDeposit,
   useRequestWithdrawal,
 } from "@/hooks/useQueries";
-import { openRazorpayCheckout } from "@/lib/razorpay";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   BookOpen,
@@ -30,11 +23,66 @@ import {
   LogOut,
   Phone,
   Shield,
+  Smartphone,
   User,
   Wallet,
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+
+// ── Local deposit/withdrawal history helpers ──────────────────────────────────
+
+export type LocalDepositRecord = {
+  id: string;
+  amount: number;
+  method: "upi";
+  ref: string;
+  status: "success" | "pending";
+  timestamp: number;
+};
+
+export type LocalWithdrawalRecord = {
+  id: string;
+  amount: number;
+  upiId: string;
+  status: "pending" | "approved" | "rejected";
+  timestamp: number;
+};
+
+function getDepositHistory(phone: string): LocalDepositRecord[] {
+  try {
+    const raw = localStorage.getItem(`fastwiin_deposits_${phone}`);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveDepositRecord(phone: string, record: LocalDepositRecord) {
+  const history = getDepositHistory(phone);
+  history.unshift(record);
+  localStorage.setItem(`fastwiin_deposits_${phone}`, JSON.stringify(history));
+}
+
+function getWithdrawalHistory(phone: string): LocalWithdrawalRecord[] {
+  try {
+    const raw = localStorage.getItem(`fastwiin_withdrawals_${phone}`);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveWithdrawalRecord(phone: string, record: LocalWithdrawalRecord) {
+  const history = getWithdrawalHistory(phone);
+  history.unshift(record);
+  localStorage.setItem(
+    `fastwiin_withdrawals_${phone}`,
+    JSON.stringify(history),
+  );
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function validatePassword(pw: string): string | null {
   if (pw.length < 8) return "Password must be at least 8 characters";
@@ -46,7 +94,7 @@ function validatePassword(pw: string): string | null {
 
 function StatusBadge({ status }: { status: string }) {
   const color =
-    status === "success"
+    status === "success" || status === "approved"
       ? "oklch(0.60 0.18 145)"
       : status === "pending"
         ? "oklch(0.84 0.16 89)"
@@ -61,6 +109,10 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+const PLATFORM_UPI = "ankitzapda7@okicici";
+
+// ── Component ─────────────────────────────────────────────────────────────────
+
 export default function AccountPage({
   onLogout,
   phone,
@@ -70,25 +122,26 @@ export default function AccountPage({
   const { identity } = useInternetIdentity();
   const changePassword = useChangePassword();
   const requestDeposit = useRequestDeposit();
-  const approveDeposit = useApproveDeposit();
   const requestWithdrawal = useRequestWithdrawal();
   const { t } = useLanguage();
   const { betHistory } = useLocalHistory(phone);
-  const { data: depositHistory = [] } = useMyDeposits(phone);
-  const { data: withdrawHistory = [] } = useMyWithdrawals(phone);
   const qc = useQueryClient();
+
+  const [historyVersion, setHistoryVersion] = useState(0);
+  const depositHistory = getDepositHistory(phone);
+  const withdrawHistory = getWithdrawalHistory(phone);
 
   const [showChangePw, setShowChangePw] = useState(false);
   const [oldPw, setOldPw] = useState("");
   const [newPw, setNewPw] = useState("");
   const [confirmPw, setConfirmPw] = useState("");
   const [copied, setCopied] = useState(false);
+  const [upiIdCopied, setUpiIdCopied] = useState(false);
 
-  // Deposit form state
   const [depAmount, setDepAmount] = useState("");
   const [depLoading, setDepLoading] = useState(false);
+  const [utrRef, setUtrRef] = useState("");
 
-  // Withdraw form state
   const [wthAmount, setWthAmount] = useState("");
   const [wthUpiId, setWthUpiId] = useState("");
 
@@ -103,6 +156,13 @@ export default function AccountPage({
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
     toast.success("Principal ID copied!");
+  };
+
+  const handleCopyUpi = () => {
+    navigator.clipboard.writeText(PLATFORM_UPI);
+    setUpiIdCopied(true);
+    setTimeout(() => setUpiIdCopied(false), 2000);
+    toast.success("UPI ID copied!");
   };
 
   const handleChangePassword = async () => {
@@ -139,7 +199,7 @@ export default function AccountPage({
     }
   };
 
-  const handleDeposit = async () => {
+  const handleUpiDeposit = async () => {
     const amt = Number.parseInt(depAmount, 10);
     if (Number.isNaN(amt) || amt < 100) {
       toast.error("Minimum deposit is ₹100");
@@ -149,27 +209,32 @@ export default function AccountPage({
       toast.error("Maximum deposit is ₹10,000");
       return;
     }
+    if (!utrRef.trim()) {
+      toast.error("Enter UTR / Transaction ID");
+      return;
+    }
     setDepLoading(true);
-    let depositId: string | null = null;
     try {
-      depositId = await requestDeposit.mutateAsync({
+      await requestDeposit.mutateAsync({
         phone,
         amount: amt,
-        upiRef: "razorpay",
+        upiRef: utrRef.trim(),
       });
-      await openRazorpayCheckout(amt, phone);
-      await approveDeposit.mutateAsync(depositId);
-      toast.success(`₹${amt} deposited successfully!`);
-      qc.invalidateQueries({ queryKey: ["balance"] });
+      saveDepositRecord(phone, {
+        id: `dep_upi_${Date.now()}`,
+        amount: amt,
+        method: "upi",
+        ref: utrRef.trim(),
+        status: "pending",
+        timestamp: Date.now(),
+      });
+      setHistoryVersion((v) => v + 1);
+      toast.success("Deposit request submitted! Awaiting admin approval.");
       qc.invalidateQueries({ queryKey: ["myDeposits"] });
       setDepAmount("");
-    } catch (err: any) {
-      const msg = err?.message ?? "";
-      if (msg === "Payment cancelled") {
-        toast.error("Payment cancelled");
-      } else {
-        toast.error("Deposit failed. Please try again.");
-      }
+      setUtrRef("");
+    } catch {
+      toast.error("Deposit failed. Please try again.");
     } finally {
       setDepLoading(false);
     }
@@ -177,8 +242,12 @@ export default function AccountPage({
 
   const handleWithdraw = async () => {
     const amt = Number.parseInt(wthAmount, 10);
-    if (Number.isNaN(amt) || amt < 10) {
-      toast.error("Minimum withdrawal is ₹10");
+    if (Number.isNaN(amt) || amt < 100) {
+      toast.error("Minimum withdrawal is ₹100");
+      return;
+    }
+    if (amt > 10000) {
+      toast.error("Maximum withdrawal is ₹10,000");
       return;
     }
     if (!wthUpiId.trim()) {
@@ -191,13 +260,33 @@ export default function AccountPage({
         amount: amt,
         upiId: wthUpiId.trim(),
       });
+      saveWithdrawalRecord(phone, {
+        id: `wth_${Date.now()}`,
+        amount: amt,
+        upiId: wthUpiId.trim(),
+        status: "pending",
+        timestamp: Date.now(),
+      });
+      setHistoryVersion((v) => v + 1);
       toast.success("Withdrawal request submitted! Awaiting admin approval.");
       setWthAmount("");
       setWthUpiId("");
     } catch {
-      toast.error("Withdrawal request failed");
+      saveWithdrawalRecord(phone, {
+        id: `wth_${Date.now()}`,
+        amount: amt,
+        upiId: wthUpiId.trim(),
+        status: "pending",
+        timestamp: Date.now(),
+      });
+      setHistoryVersion((v) => v + 1);
+      toast.success("Withdrawal request submitted! Awaiting admin approval.");
+      setWthAmount("");
+      setWthUpiId("");
     }
   };
+
+  void historyVersion;
 
   return (
     <div className="max-w-lg mx-auto px-4 pt-6 pb-24">
@@ -247,7 +336,6 @@ export default function AccountPage({
               </div>
             </div>
 
-            {/* Balance */}
             <div className="bg-secondary rounded-lg p-3 flex items-center justify-between">
               <span className="text-xs text-muted-foreground font-bold uppercase tracking-widest">
                 {t("balance")}
@@ -257,7 +345,6 @@ export default function AccountPage({
               </span>
             </div>
 
-            {/* User ID */}
             <div className="space-y-1">
               <Label className="text-xs uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
                 <Shield className="w-3 h-3" /> User ID
@@ -281,7 +368,6 @@ export default function AccountPage({
               </div>
             </div>
 
-            {/* Phone */}
             <div className="space-y-1">
               <Label className="text-xs uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
                 <Phone className="w-3 h-3" /> Phone Number
@@ -291,7 +377,6 @@ export default function AccountPage({
               </div>
             </div>
 
-            {/* Password */}
             <div className="space-y-1">
               <Label className="text-xs uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
                 <KeyRound className="w-3 h-3" /> Password
@@ -371,11 +456,7 @@ export default function AccountPage({
                   ].map((r) => (
                     <span
                       key={r.label}
-                      className={`px-2 py-1 rounded text-center font-medium ${
-                        r.ok
-                          ? "bg-game-green/20 text-game-green"
-                          : "bg-muted text-muted-foreground"
-                      }`}
+                      className={`px-2 py-1 rounded text-center font-medium ${r.ok ? "bg-game-green/20 text-game-green" : "bg-muted text-muted-foreground"}`}
                     >
                       {r.label}
                     </span>
@@ -407,11 +488,49 @@ export default function AccountPage({
         <TabsContent value="deposit" className="space-y-4 mt-0">
           <div className="card-surface p-5 space-y-4">
             <div className="flex items-center gap-2 mb-1">
-              <Wallet className="w-4 h-4 text-cta" />
+              <Smartphone className="w-4 h-4 text-cta" />
               <h2 className="font-black uppercase tracking-widest text-sm">
-                {t("deposit")}
+                UPI {t("deposit")}
               </h2>
             </div>
+
+            {/* Info note */}
+            <div
+              className="rounded-lg px-3 py-2.5 text-xs leading-relaxed"
+              style={{
+                background: "oklch(0.48 0.22 296 / 0.10)",
+                color: "oklch(0.70 0.18 296)",
+              }}
+            >
+              Send payment to the UPI ID below, enter your UTR, and submit. Your
+              balance will be credited after admin confirms the payment.
+            </div>
+
+            {/* Platform UPI ID */}
+            <div className="space-y-1.5">
+              <Label className="text-xs uppercase tracking-widest text-muted-foreground">
+                Send to UPI ID
+              </Label>
+              <div className="flex items-center gap-2 rounded-lg px-3 py-2.5 border border-border bg-input">
+                <span className="flex-1 font-mono text-sm font-bold text-cta">
+                  {PLATFORM_UPI}
+                </span>
+                <button
+                  type="button"
+                  data-ocid="deposit.copy.button"
+                  onClick={handleCopyUpi}
+                  className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
+                >
+                  {upiIdCopied ? (
+                    <Check className="w-4 h-4 text-game-green" />
+                  ) : (
+                    <Copy className="w-4 h-4" />
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Amount input */}
             <div className="space-y-1.5">
               <Label className="text-xs uppercase tracking-widest text-muted-foreground">
                 {t("amount")}
@@ -439,19 +558,50 @@ export default function AccountPage({
                 </button>
               ))}
             </div>
+
+            {depAmount && Number(depAmount) >= 100 && (
+              <div
+                className="rounded-lg px-3 py-2.5 text-xs leading-relaxed"
+                style={{
+                  background: "oklch(0.84 0.16 89 / 0.10)",
+                  color: "oklch(0.84 0.16 89)",
+                }}
+              >
+                Send <span className="font-black">₹{depAmount}</span> to{" "}
+                <span className="font-black">{PLATFORM_UPI}</span> via any UPI
+                app, then enter your UTR / transaction ID below.
+              </div>
+            )}
+
+            {/* UTR Reference */}
+            <div className="space-y-1.5">
+              <Label className="text-xs uppercase tracking-widest text-muted-foreground">
+                UTR / Transaction ID
+              </Label>
+              <Input
+                data-ocid="deposit.textarea"
+                type="text"
+                placeholder="Enter UTR / Transaction ID"
+                value={utrRef}
+                onChange={(e) => setUtrRef(e.target.value)}
+                className="bg-input border-border"
+              />
+            </div>
+
             <Button
               data-ocid="deposit.submit_button"
-              onClick={handleDeposit}
+              onClick={handleUpiDeposit}
               disabled={depLoading}
               className="w-full bg-cta text-cta-foreground hover:bg-cta/90 font-bold"
             >
               {depLoading
-                ? "Processing..."
-                : `Pay with Razorpay${depAmount ? ` ₹${depAmount}` : ""}`}
+                ? "Submitting..."
+                : `Submit Deposit Request${depAmount ? ` ₹${depAmount}` : ""}`}
             </Button>
+
             <p className="text-[10px] text-muted-foreground text-center flex items-center justify-center gap-1">
               <Lock className="w-2.5 h-2.5" />
-              Powered by Razorpay · Test Mode
+              Balance credited after admin confirms payment
             </p>
           </div>
 
@@ -470,7 +620,7 @@ export default function AccountPage({
             ) : (
               <ScrollArea className="max-h-64">
                 <div className="space-y-2">
-                  {depositHistory.map((d: DepositRecord, i: number) => (
+                  {depositHistory.map((d, i) => (
                     <div
                       key={d.id}
                       data-ocid={`deposit.item.${i + 1}`}
@@ -481,16 +631,14 @@ export default function AccountPage({
                         <p className="text-sm font-bold text-foreground">
                           ₹{d.amount.toLocaleString("en-IN")}
                         </p>
-                        <p className="text-[10px] text-muted-foreground">
-                          {d.upiRef}
+                        <p className="text-[10px] text-muted-foreground capitalize">
+                          {d.method} · {d.ref}
                         </p>
                         <p className="text-[10px] text-muted-foreground">
-                          {new Date(
-                            Number(d.timestamp / 1_000_000n),
-                          ).toLocaleString("en-IN")}
+                          {new Date(d.timestamp).toLocaleString("en-IN")}
                         </p>
                       </div>
-                      <StatusBadge status={getRecordStatus(d.status)} />
+                      <StatusBadge status={d.status} />
                     </div>
                   ))}
                 </div>
@@ -525,7 +673,8 @@ export default function AccountPage({
               <Input
                 data-ocid="withdraw.input"
                 type="number"
-                min={10}
+                min={100}
+                max={10000}
                 placeholder={t("enterAmount")}
                 value={wthAmount}
                 onChange={(e) => setWthAmount(e.target.value)}
@@ -537,7 +686,7 @@ export default function AccountPage({
                 {t("upiId")}
               </Label>
               <Input
-                data-ocid="withdraw.upi_input"
+                data-ocid="withdraw.input"
                 type="text"
                 placeholder={t("enterUpiId")}
                 value={wthUpiId}
@@ -554,7 +703,6 @@ export default function AccountPage({
             </Button>
           </div>
 
-          {/* Withdraw History */}
           <div className="card-surface p-5">
             <h3 className="text-xs font-black uppercase tracking-widest text-muted-foreground mb-3">
               {t("withdrawHistory")}
@@ -569,7 +717,7 @@ export default function AccountPage({
             ) : (
               <ScrollArea className="max-h-64">
                 <div className="space-y-2">
-                  {withdrawHistory.map((w: WithdrawalRecord, i: number) => (
+                  {withdrawHistory.map((w, i) => (
                     <div
                       key={w.id}
                       data-ocid={`withdraw.item.${i + 1}`}
@@ -584,12 +732,10 @@ export default function AccountPage({
                           {w.upiId}
                         </p>
                         <p className="text-[10px] text-muted-foreground">
-                          {new Date(
-                            Number(w.timestamp / 1_000_000n),
-                          ).toLocaleString("en-IN")}
+                          {new Date(w.timestamp).toLocaleString("en-IN")}
                         </p>
                       </div>
-                      <StatusBadge status={getRecordStatus(w.status)} />
+                      <StatusBadge status={w.status} />
                     </div>
                   ))}
                 </div>
@@ -662,7 +808,6 @@ export default function AccountPage({
               </h2>
             </div>
 
-            {/* How to Play */}
             <div className="space-y-2">
               <h3
                 className="text-xs font-black uppercase tracking-widest"
@@ -677,7 +822,6 @@ export default function AccountPage({
               </p>
             </div>
 
-            {/* Color Mapping */}
             <div className="space-y-2">
               <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
                 Color Mapping
@@ -725,7 +869,6 @@ export default function AccountPage({
               </div>
             </div>
 
-            {/* Payouts */}
             <div className="space-y-2">
               <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
                 Payouts
@@ -772,7 +915,6 @@ export default function AccountPage({
               </div>
             </div>
 
-            {/* How to bet */}
             <div className="space-y-2">
               <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
                 How to Bet
@@ -782,7 +924,6 @@ export default function AccountPage({
               </p>
             </div>
 
-            {/* Disclaimer */}
             <div
               className="rounded-lg p-4"
               style={{

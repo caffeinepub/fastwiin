@@ -46,8 +46,8 @@ export function useAuthStatus() {
     enabled: !!actor && !isFetching,
     staleTime: 30000,
     refetchInterval: 25000,
-    retry: 1,
-    retryDelay: 1000,
+    retry: 5,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 10000),
   });
 }
 
