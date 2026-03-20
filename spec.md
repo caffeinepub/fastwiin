@@ -1,39 +1,36 @@
 # Fastwiin
 
 ## Current State
-Full-stack color/number prediction gaming platform with auth (phone+OTP), UPI deposits (admin-approved), withdrawals (manual), game modes (30s/1m/3m), leaderboard, admin panel, notifications, and black/white theme.
+- Full-stack color/number prediction gaming platform with phone/OTP auth
+- Three game modes (30s, 1min, 3min) running continuously in IST
+- UPI-only deposit with admin approval, manual withdrawals
+- Admin panel (phone 8200321382), leaderboard, referral system
+- In-app round result notifications
+- AccountPage with deposit/withdraw, bet history, referral invite tab, language switcher, beginner guide
+- Backend has `saveCallerUserProfile` / `getCallerUserProfile` for name storage
+- No profile page, no sound effects, no support contact, UI needs polish
 
 ## Requested Changes (Diff)
 
 ### Add
-- Referral system backend:
-  - Generate a unique referral code per user (based on phone, e.g. FW + last 6 digits)
-  - Store referral relationships: who referred whom
-  - Apply ₹20 bonus to new user when they sign up using a valid referral code
-  - Apply ₹100 bonus to referrer when their referred friend makes their first deposit
-  - Track first-deposit status per user (so bonus is only paid once)
-  - API: getReferralCode(phone) -> Text
-  - API: applyReferralCode(newUserPhone, referralCode) -> Bool (call during registration)
-  - API: getReferralHistory(phone) -> [ReferralRecord] (who referred, bonus earned, status)
-  - API: notifyFirstDeposit(phone) -> () (call when deposit is approved; awards ₹100 to referrer if first deposit)
-
-- Frontend referral UI in My Account:
-  - "Invite Friends" section showing user's unique referral code with a copy button
-  - Referral history list: referred phone (masked), signup bonus status, deposit bonus status
-  - During signup (AuthModal), optional "Referral Code" input field; applied after registration
+- Profile page tab in My Account (or dedicated section): editable name, avatar photo upload, account stats (total bets, total winnings, win rate, games played)
+- Avatar upload using blob-storage component
+- Sound effects: win round (positive chime), lose round (negative tone), last-5-second countdown beeps
+- Support section showing contact email: ankitzapda7@gmail.com
+- Full-app UI polish pass: premium look across home, game panels, My Account, admin panel
 
 ### Modify
-- setPassword backend: after registration, if referral code was provided, apply ₹20 bonus
-- approveDeposit backend: call notifyFirstDeposit to check and award ₹100 referrer bonus
-- AccountPage: add Referral/Invite section tab or card
-- AuthModal signup flow: add optional referral code input
+- AccountPage: add Profile tab with name/avatar editor and stats
+- GameModePage: play win/lose sound on round result; play countdown beep in last-5-second popup
+- BottomNav or AccountPage: add Support entry
+- Overall styling: elevate visual quality across all screens
 
 ### Remove
 - Nothing removed
 
 ## Implementation Plan
-1. Add referral data structures and APIs to Motoko backend
-2. Modify setPassword to accept optional referral code and apply ₹20 bonus
-3. Modify approveDeposit to trigger referrer ₹100 bonus on first deposit
-4. Update frontend AuthModal to include optional referral code field during signup
-5. Add referral section to AccountPage with code display, copy button, and history
+1. Use blob-storage for avatar image upload/retrieval
+2. Add Profile tab in AccountPage: fetch profile via `getCallerUserProfile`, save via `saveCallerUserProfile`; show avatar from blob-storage; show stats computed from bet history
+3. Create sound effects using Web Audio API (no external files needed) for win, lose, and countdown beeps
+4. Add Support section in AccountPage showing ankitzapda7@gmail.com with mailto link
+5. Apply full UI polish: better typography, gradients, card shadows, color accents, spacing, and visual hierarchy throughout the app

@@ -11,6 +11,7 @@ import {
   usePlaceBet,
   useSettleRound,
 } from "@/hooks/useQueries";
+import { playCountdownBeep, playLoseSound, playWinSound } from "@/lib/sounds";
 import { Clock } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -77,14 +78,21 @@ function DigitTimer({
 }: { timeLeft: number; durationSec: number }) {
   const isUrgent = timeLeft <= 5;
   const boxStyle = {
-    background: "oklch(0.08 0 0)",
-    border: "1px solid oklch(0.22 0 0)",
+    background: isUrgent
+      ? "oklch(0.57 0.22 28 / 0.12)"
+      : "linear-gradient(180deg, oklch(0.13 0 0), oklch(0.08 0 0))",
+    border: isUrgent
+      ? "1px solid oklch(0.57 0.22 28 / 0.50)"
+      : "1px solid oklch(0.22 0 0)",
     color: isUrgent ? RED : "oklch(0.98 0 0)",
+    boxShadow: isUrgent
+      ? "0 0 12px oklch(0.57 0.22 28 / 0.35)"
+      : "0 2px 6px oklch(0 0 0 / 0.5)",
   };
 
   const DigitBox = ({ value }: { value: string }) => (
     <div
-      className="w-8 h-10 rounded flex items-center justify-center font-mono font-black text-xl"
+      className="w-9 h-11 rounded-lg flex items-center justify-center font-mono font-black text-2xl digit-box"
       style={boxStyle}
     >
       {value}
@@ -266,43 +274,51 @@ function InfoCard({
 function CountdownPopup({ timeLeft }: { timeLeft: number }) {
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.85 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.85 }}
-      transition={{ duration: 0.2, ease: "easeOut" }}
+      initial={{ opacity: 0, y: 20, scale: 0.92 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: 20, scale: 0.92 }}
+      transition={{ duration: 0.22, ease: "easeOut" }}
       className="fixed inset-x-0 z-[60] flex flex-col items-center justify-center"
       style={{
         top: "35%",
         height: "30%",
-        background: "rgba(0,0,0,0.92)",
-        backdropFilter: "blur(6px)",
+        background: "rgba(0,0,0,0.96)",
+        backdropFilter: "blur(10px)",
+        borderTop: "1px solid oklch(0.57 0.22 28 / 0.30)",
+        borderBottom: "1px solid oklch(0.57 0.22 28 / 0.30)",
       }}
       data-ocid="game.countdown.modal"
     >
       <p
-        className="text-[11px] font-black uppercase tracking-[0.25em] mb-4"
-        style={{ color: "rgba(255,200,200,0.9)" }}
+        className="text-[10px] font-black uppercase tracking-[0.3em] mb-5"
+        style={{ color: "oklch(0.57 0.22 28 / 0.85)" }}
       >
-        BETTING CLOSES IN
+        ⛔ BETTING CLOSES IN
       </p>
       <AnimatePresence mode="wait">
         <motion.div
           key={timeLeft}
-          initial={{ scale: 1.6, opacity: 0 }}
+          initial={{ scale: 1.7, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
-          exit={{ scale: 0.6, opacity: 0 }}
-          transition={{ duration: 0.18, ease: "easeOut" }}
+          exit={{ scale: 0.5, opacity: 0 }}
+          transition={{ duration: 0.16, ease: "easeOut" }}
           className="font-black leading-none"
-          style={{ fontSize: "5rem", color: "#fff", lineHeight: 1 }}
+          style={{
+            fontSize: "6rem",
+            color: "oklch(0.57 0.22 28)",
+            lineHeight: 1,
+            textShadow:
+              "0 0 40px oklch(0.57 0.22 28 / 0.6), 0 0 80px oklch(0.57 0.22 28 / 0.3)",
+          }}
         >
           {timeLeft}
         </motion.div>
       </AnimatePresence>
       <p
-        className="mt-6 text-xs font-bold uppercase tracking-widest"
-        style={{ color: "rgba(255,200,200,0.75)" }}
+        className="mt-5 text-[10px] font-bold uppercase tracking-[0.2em]"
+        style={{ color: "oklch(0.50 0.15 28 / 0.75)" }}
       >
-        seconds
+        seconds remaining
       </p>
     </motion.div>
   );
@@ -977,7 +993,6 @@ export default function GameModePage({
   const hasLockedRef = useRef(false);
   const hasSettledRef = useRef(false);
   const prevTimeRef = useRef(timeLeft);
-  const audioCtxRef = useRef<AudioContext | null>(null);
 
   const { data: gameState, refetch: refetchGameState } = useGameState(modeKey);
   const { addBet } = useLocalHistory(phone);
@@ -985,27 +1000,6 @@ export default function GameModePage({
   const lockRound = useLockRound();
   const settleRound = useSettleRound();
   const { addNotification } = useNotifications();
-
-  const playBeep = useCallback(() => {
-    try {
-      if (!audioCtxRef.current) {
-        audioCtxRef.current = new AudioContext();
-      }
-      const ctx = audioCtxRef.current;
-      const oscillator = ctx.createOscillator();
-      const gainNode = ctx.createGain();
-      oscillator.connect(gainNode);
-      gainNode.connect(ctx.destination);
-      oscillator.type = "sine";
-      oscillator.frequency.setValueAtTime(880, ctx.currentTime);
-      gainNode.gain.setValueAtTime(0.25, ctx.currentTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
-      oscillator.start(ctx.currentTime);
-      oscillator.stop(ctx.currentTime + 0.08);
-    } catch {
-      // AudioContext may be unavailable in some environments; silently ignore
-    }
-  }, []);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: modeKey triggers reset intentionally
   useEffect(() => {
@@ -1025,7 +1019,7 @@ export default function GameModePage({
         setBettingClosed(true);
         // Play beep on each new countdown second
         if (t !== prevTimeRef.current && t >= 1 && t <= 5) {
-          playBeep();
+          playCountdownBeep();
         }
         if (!hasLockedRef.current) {
           hasLockedRef.current = true;
@@ -1086,9 +1080,11 @@ export default function GameModePage({
                 return updated;
               });
               if (won) {
+                playWinSound();
                 toast.success(`🎉 You won ₹${payout}!`);
                 addNotification(`You won ₹${payout}! 🎉`, "win");
               } else {
+                playLoseSound();
                 toast.error(`Better luck next time – ₹${lastBet.amount} lost`);
                 addNotification(
                   `Better luck next time - ₹${lastBet.amount} lost`,
@@ -1107,8 +1103,8 @@ export default function GameModePage({
     tick();
     const id = setInterval(tick, 200);
     return () => clearInterval(id);
-    // biome-ignore lint/correctness/useExhaustiveDependencies: addNotification stable context ref, refs excluded
-  }, [durationSec, modeKey, playBeep]);
+    // biome-ignore lint/correctness/useExhaustiveDependencies: stable context refs excluded intentionally
+  }, [durationSec, modeKey]);
 
   const handleBetPlaced = useCallback(
     (target: { color?: Color; number?: number }, amount: number) => {

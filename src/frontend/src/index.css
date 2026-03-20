@@ -11,47 +11,47 @@
 
 @layer base {
   :root {
-    --radius: 0.625rem;
-    /* Dark casino palette */
-    --background: 0.06 0 0;
-    --foreground: 0.95 0 0;
-    --card: 0.115 0 0;
-    --card-foreground: 0.95 0 0;
-    --popover: 0.14 0 0;
-    --popover-foreground: 0.95 0 0;
-    --primary: 0.95 0 0;
-    --primary-foreground: 0.06 0 0;
-    --secondary: 0.16 0 0;
-    --secondary-foreground: 0.95 0 0;
-    --muted: 0.15 0 0;
-    --muted-foreground: 0.52 0 0;
-    --accent: 0.2 0 0;
-    --accent-foreground: 0.95 0 0;
+    --radius: 0.75rem;
+    /* Dark premium casino palette */
+    --background: 0.05 0 0;
+    --foreground: 0.96 0 0;
+    --card: 0.1 0 0;
+    --card-foreground: 0.96 0 0;
+    --popover: 0.13 0 0;
+    --popover-foreground: 0.96 0 0;
+    --primary: 0.96 0 0;
+    --primary-foreground: 0.05 0 0;
+    --secondary: 0.14 0 0;
+    --secondary-foreground: 0.96 0 0;
+    --muted: 0.14 0 0;
+    --muted-foreground: 0.5 0 0;
+    --accent: 0.18 0 0;
+    --accent-foreground: 0.96 0 0;
     --destructive: 0.55 0.22 28;
-    --destructive-foreground: 0.95 0 0;
-    --border: 0.2 0 0;
-    --input: 0.15 0 0;
+    --destructive-foreground: 0.96 0 0;
+    --border: 0.19 0 0;
+    --input: 0.13 0 0;
     --ring: 0.84 0.16 89;
-    /* Yellow CTA */
+    /* Gold CTA */
     --cta: 0.84 0.16 89;
-    --cta-foreground: 0.1 0 0;
+    --cta-foreground: 0.08 0 0;
     /* Game mechanic colors */
-    --game-green: 0.6 0.18 145;
-    --game-red: 0.55 0.22 28;
-    --game-purple: 0.48 0.22 296;
+    --game-green: 0.62 0.19 145;
+    --game-red: 0.57 0.22 28;
+    --game-purple: 0.5 0.22 296;
     --game-gold: 0.84 0.16 89;
-    --chart-1: 0.6 0.18 145;
-    --chart-2: 0.55 0.22 28;
-    --chart-3: 0.48 0.22 296;
+    --chart-1: 0.62 0.19 145;
+    --chart-2: 0.57 0.22 28;
+    --chart-3: 0.5 0.22 296;
     --chart-4: 0.84 0.16 89;
     --chart-5: 0.52 0 0;
-    --sidebar: 0.1 0 0;
-    --sidebar-foreground: 0.95 0 0;
-    --sidebar-primary: 0.95 0 0;
-    --sidebar-primary-foreground: 0.06 0 0;
-    --sidebar-accent: 0.16 0 0;
-    --sidebar-accent-foreground: 0.95 0 0;
-    --sidebar-border: 0.2 0 0;
+    --sidebar: 0.08 0 0;
+    --sidebar-foreground: 0.96 0 0;
+    --sidebar-primary: 0.96 0 0;
+    --sidebar-primary-foreground: 0.05 0 0;
+    --sidebar-accent: 0.14 0 0;
+    --sidebar-accent-foreground: 0.96 0 0;
+    --sidebar-border: 0.19 0 0;
     --sidebar-ring: 0.84 0.16 89;
   }
 
@@ -66,41 +66,87 @@
   body {
     @apply bg-background text-foreground;
     font-family: "Plus Jakarta Sans", "Inter", system-ui, sans-serif;
-    background: linear-gradient(
-      180deg,
-      oklch(0.06 0 0) 0%,
-      oklch(0.08 0 0) 60%,
-      oklch(0.07 0 0) 100%
-    );
+    background: radial-gradient(
+        ellipse 80% 60% at 50% 0%,
+        oklch(0.1 0.02 89 / 0.18) 0%,
+        transparent 60%
+      ),
+      linear-gradient(
+        180deg,
+        oklch(0.055 0 0) 0%,
+        oklch(0.07 0 0) 50%,
+        oklch(0.06 0 0) 100%
+      );
     min-height: 100vh;
   }
 }
 
 @layer utilities {
   .glow-green {
-    box-shadow: 0 0 18px oklch(var(--game-green) / 0.5), 0 0 40px
-      oklch(var(--game-green) / 0.2);
+    box-shadow: 0 0 18px oklch(var(--game-green) / 0.55), 0 0 40px
+      oklch(var(--game-green) / 0.25);
   }
   .glow-red {
-    box-shadow: 0 0 18px oklch(var(--game-red) / 0.5), 0 0 40px
-      oklch(var(--game-red) / 0.2);
+    box-shadow: 0 0 18px oklch(var(--game-red) / 0.55), 0 0 40px
+      oklch(var(--game-red) / 0.25);
   }
   .glow-purple {
-    box-shadow: 0 0 18px oklch(var(--game-purple) / 0.5), 0 0 40px
-      oklch(var(--game-purple) / 0.2);
+    box-shadow: 0 0 18px oklch(var(--game-purple) / 0.55), 0 0 40px
+      oklch(var(--game-purple) / 0.25);
+  }
+  .glow-gold {
+    box-shadow: 0 0 20px oklch(var(--game-gold) / 0.5), 0 0 50px
+      oklch(var(--game-gold) / 0.2);
   }
   .glow-cta {
-    box-shadow: 0 0 16px oklch(var(--cta) / 0.4);
+    box-shadow: 0 0 20px oklch(var(--cta) / 0.45), 0 0 50px
+      oklch(var(--cta) / 0.18);
   }
+
+  /* Premium card surfaces */
   .card-surface {
-    background: linear-gradient(145deg, oklch(0.125 0 0), oklch(0.155 0 0));
-    border: 1px solid oklch(var(--border));
+    background: linear-gradient(
+      145deg,
+      oklch(0.115 0.003 89) 0%,
+      oklch(0.145 0.002 89) 100%
+    );
+    border: 1px solid oklch(0.22 0.005 89 / 0.6);
     border-radius: var(--radius);
+    box-shadow: 0 4px 24px oklch(0 0 0 / 0.4), inset 0 1px 0 oklch(1 0 0 / 0.04);
   }
   .card-surface-elevated {
-    background: linear-gradient(145deg, oklch(0.14 0 0), oklch(0.17 0 0));
-    border: 1px solid oklch(0.23 0 0);
+    background: linear-gradient(
+      145deg,
+      oklch(0.135 0.003 89) 0%,
+      oklch(0.165 0.002 89) 100%
+    );
+    border: 1px solid oklch(0.26 0.005 89 / 0.7);
     border-radius: var(--radius);
+    box-shadow: 0 8px 32px oklch(0 0 0 / 0.5), inset 0 1px 0 oklch(1 0 0 / 0.06);
+  }
+  .glass-surface {
+    background: oklch(0.12 0 0 / 0.85);
+    backdrop-filter: blur(12px);
+    border: 1px solid oklch(0.28 0 0 / 0.5);
+    border-radius: var(--radius);
+  }
+
+  /* Premium avatar */
+  .avatar-ring {
+    box-shadow: 0 0 0 2px oklch(0.84 0.16 89 / 0.6), 0 0 16px
+      oklch(0.84 0.16 89 / 0.3);
+  }
+
+  /* Timer digit box */
+  .digit-box {
+    background: linear-gradient(
+      180deg,
+      oklch(0.12 0 0) 0%,
+      oklch(0.08 0 0) 100%
+    );
+    border: 1px solid oklch(0.24 0 0);
+    border-radius: 8px;
+    box-shadow: 0 2px 8px oklch(0 0 0 / 0.6), inset 0 1px 0 oklch(1 0 0 / 0.05);
   }
 }
 
@@ -110,21 +156,35 @@
     opacity: 1;
   }
   50% {
-    opacity: 0.4;
+    opacity: 0.35;
+  }
+}
+@keyframes countdown-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 0.85;
   }
 }
 @keyframes win-flash {
   0% {
     transform: scale(1);
   }
-  25% {
-    transform: scale(1.15);
+  20% {
+    transform: scale(1.18);
   }
-  50% {
-    transform: scale(1);
+  40% {
+    transform: scale(1.02);
   }
-  75% {
-    transform: scale(1.08);
+  60% {
+    transform: scale(1.12);
+  }
+  80% {
+    transform: scale(1.0);
   }
   100% {
     transform: scale(1);
@@ -132,7 +192,7 @@
 }
 @keyframes slide-up {
   from {
-    transform: translateY(8px);
+    transform: translateY(10px);
     opacity: 0;
   }
   to {
@@ -140,13 +200,37 @@
     opacity: 1;
   }
 }
+@keyframes gold-shimmer {
+  0% {
+    background-position: -200% center;
+  }
+  100% {
+    background-position: 200% center;
+  }
+}
+@keyframes pulse-glow-red {
+  0%,
+  100% {
+    box-shadow: 0 0 18px oklch(0.57 0.22 28 / 0.45);
+  }
+  50% {
+    box-shadow: 0 0 36px oklch(0.57 0.22 28 / 0.85), 0 0 60px
+      oklch(0.57 0.22 28 / 0.4);
+  }
+}
 
 .animate-countdown-flash {
   animation: countdown-flash 1s ease-in-out infinite;
+}
+.animate-countdown-pulse {
+  animation: countdown-pulse 0.8s ease-in-out infinite;
 }
 .animate-win-flash {
   animation: win-flash 0.8s ease-in-out;
 }
 .animate-slide-up {
   animation: slide-up 0.3s ease-out;
+}
+.animate-pulse-glow-red {
+  animation: pulse-glow-red 1.2s ease-in-out infinite;
 }

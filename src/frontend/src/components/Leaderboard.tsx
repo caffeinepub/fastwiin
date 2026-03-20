@@ -1,4 +1,4 @@
-import { Medal, Trophy } from "lucide-react";
+import { Trophy } from "lucide-react";
 import { useMemo, useState } from "react";
 
 interface LeaderboardEntry {
@@ -193,13 +193,6 @@ export default function Leaderboard({ phone }: { phone: string }) {
         ? "Total Bets"
         : "Biggest Win";
 
-  const getRankColor = (rank: number) => {
-    if (rank === 1) return "oklch(0.84 0.16 89)";
-    if (rank === 2) return "oklch(0.75 0.05 200)";
-    if (rank === 3) return "oklch(0.72 0.14 55)";
-    return "oklch(0.45 0 0)";
-  };
-
   const tabStyle = (active: boolean) => ({
     background: active ? "oklch(0.95 0 0)" : "transparent",
     color: active ? "oklch(0.06 0 0)" : "oklch(0.55 0 0)",
@@ -228,11 +221,13 @@ export default function Leaderboard({ phone }: { phone: string }) {
     <div
       data-ocid="leaderboard.section"
       style={{
-        background: "oklch(0.10 0 0)",
-        border: "1px solid oklch(0.18 0 0)",
+        background:
+          "linear-gradient(145deg, oklch(0.115 0.003 89), oklch(0.145 0.002 89))",
+        border: "1px solid oklch(0.22 0.005 89 / 0.6)",
         borderRadius: "14px",
         padding: "16px",
         marginTop: "4px",
+        boxShadow: "0 4px 24px oklch(0 0 0 / 0.4)",
       }}
     >
       {/* Header */}
@@ -389,11 +384,12 @@ export default function Leaderboard({ phone }: { phone: string }) {
               }}
             >
               <div style={{ width: "28px" }}>
-                {entry.rank <= 3 ? (
-                  <Medal
-                    className="w-4 h-4"
-                    style={{ color: getRankColor(entry.rank) }}
-                  />
+                {entry.rank === 1 ? (
+                  <span style={{ fontSize: "16px" }}>🥇</span>
+                ) : entry.rank === 2 ? (
+                  <span style={{ fontSize: "16px" }}>🥈</span>
+                ) : entry.rank === 3 ? (
+                  <span style={{ fontSize: "16px" }}>🥉</span>
                 ) : (
                   <span
                     style={{
