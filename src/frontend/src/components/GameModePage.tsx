@@ -615,26 +615,56 @@ function BetAmountPanel({
           ))}
         </div>
 
-        <div className="relative">
-          <span
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-sm"
-            style={{ color: "oklch(0.55 0 0)" }}
+        <div className="space-y-1">
+          <div className="relative">
+            <span
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-sm"
+              style={{ color: "oklch(0.55 0 0)" }}
+            >
+              ₹
+            </span>
+            <Input
+              data-ocid="game.input"
+              type="number"
+              min={10}
+              max={10000}
+              value={betInput}
+              onChange={(e) => handleBetInput(e.target.value)}
+              className="pl-7 font-mono"
+              style={{
+                background: "oklch(0.08 0 0)",
+                borderColor:
+                  betAmount < 10 || betAmount > 10000
+                    ? "oklch(0.57 0.22 28 / 0.7)"
+                    : "oklch(0.22 0 0)",
+              }}
+            />
+          </div>
+          {betAmount < 10 && betInput !== "" && (
+            <p
+              className="text-[10px] font-medium"
+              style={{ color: "oklch(0.57 0.22 28)" }}
+              data-ocid="game.error_state"
+            >
+              Minimum bet is ₹10
+            </p>
+          )}
+          {betAmount > 10000 && (
+            <p
+              className="text-[10px] font-medium"
+              style={{ color: "oklch(0.57 0.22 28)" }}
+              data-ocid="game.error_state"
+            >
+              Maximum bet is ₹10,000
+            </p>
+          )}
+          <div
+            className="flex justify-between text-[10px]"
+            style={{ color: "oklch(0.40 0 0)" }}
           >
-            ₹
-          </span>
-          <Input
-            data-ocid="game.input"
-            type="number"
-            min={10}
-            max={10000}
-            value={betInput}
-            onChange={(e) => handleBetInput(e.target.value)}
-            className="pl-7 font-mono"
-            style={{
-              background: "oklch(0.08 0 0)",
-              borderColor: "oklch(0.22 0 0)",
-            }}
-          />
+            <span>Min ₹10</span>
+            <span>Max ₹10,000</span>
+          </div>
         </div>
 
         {betAmount >= 10 && (

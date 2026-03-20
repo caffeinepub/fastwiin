@@ -11,6 +11,7 @@ import Array "mo:core/Array";
 import Char "mo:core/Char";
 import Iter "mo:core/Iter";
 
+import HttpOutcall "http-outcalls/outcall";
 
 import MixinAuthorization "authorization/MixinAuthorization";
 import AccessControl "authorization/access-control";
@@ -131,6 +132,27 @@ actor {
     };
   };
 
+  // ===== FAST2SMS INTEGRATION =====
+  let fast2smsApiKey = "t3zi86gM5dIwbpnVyF1jxLTDUe9CSNXlBqk0a4AcmYEu7OfsRvvzAjaio9lWTshrtmP70Vn8dBXQxG5w";
+
+  // Required transform function for HTTP outcall consensus
+  public query func transformHttpResponse(input : HttpOutcall.TransformationInput) : async HttpOutcall.TransformationOutput {
+    HttpOutcall.transform(input);
+  };
+
+  // Normalize phone to 10-digit format for Fast2SMS
+  func normalizePhone(phone : Text) : Text {
+    let arr = phone.toArray();
+    let len = arr.size();
+    if (len == 13 and arr[0] == '+' and arr[1] == '9' and arr[2] == '1') {
+      Text.fromArray(arr.sliceToArray(3, 13));
+    } else if (len == 12 and arr[0] == '9' and arr[1] == '1') {
+      Text.fromArray(arr.sliceToArray(2, 12));
+    } else {
+      phone;
+    };
+  };
+
   public shared ({ caller }) func requestOtp(phone : Text) : async Text {
     let rng = Random.crypto();
     let n = await* rng.natRange(100000, 999999);
@@ -143,7 +165,17 @@ actor {
     };
     phoneAccounts.add(caller, existing);
     phoneLoginOtps.add(phone, otp);
-    otp;
+
+    // Send OTP via Fast2SMS
+    let normalPhone = normalizePhone(phone);
+    let url = "https://www.fast2sms.com/dev/bulkV2?authorization=" # fast2smsApiKey # "&variables_values=" # otp # "&route=otp&numbers=" # normalPhone;
+    try {
+      ignore await HttpOutcall.httpGetRequest(url, [], transformHttpResponse);
+    } catch (_) {
+      // SMS send failed silently - OTP is stored and can be checked if needed
+    };
+
+    ""; // OTP not returned to client - delivered via SMS
   };
 
   public shared ({ caller }) func verifyOtp(otp : Text) : async Bool {

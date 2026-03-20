@@ -1,3 +1,4 @@
+import FastwiinLogo from "@/components/FastwiinLogo";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -61,7 +62,6 @@ export default function AuthModal({
   );
   const [phone, setPhone] = useState(registeredPhone || "");
   const [otp, setOtp] = useState("");
-  const [otpReceived, setOtpReceived] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [referralCode, setReferralCode] = useState("");
@@ -70,9 +70,6 @@ export default function AuthModal({
   const [otpError, setOtpError] = useState<string | null>(null);
   const [resendingOtp, setResendingOtp] = useState(false);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Fix: actor object is a local proxy, always available once initialized.
-  // Remove !actorFetching condition -- it was keeping the button stuck on "Connecting..."
 
   useEffect(() => {
     if (open) {
@@ -102,10 +99,9 @@ export default function AuthModal({
   ): Promise<void> => {
     setOtpError(null);
     try {
-      const code = await requestOtp.mutateAsync(phoneNum);
-      setOtpReceived(code);
+      await requestOtp.mutateAsync(phoneNum);
       setStep("otp");
-      toast.success("OTP sent!");
+      toast.success("OTP sent to your phone!");
       setOtpRetries(0);
       setResendingOtp(false);
     } catch (err: any) {
@@ -223,11 +219,8 @@ export default function AuthModal({
         data-ocid="auth.dialog"
       >
         <DialogHeader>
-          <DialogTitle className="text-center">
-            <span className="text-2xl font-black">
-              <span className="text-foreground">Fast</span>
-              <span className="text-cta">wiin</span>
-            </span>
+          <DialogTitle className="text-center flex flex-col items-center gap-1">
+            <FastwiinLogo size="md" />
           </DialogTitle>
         </DialogHeader>
 
@@ -367,16 +360,10 @@ export default function AuthModal({
               >
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <KeyRound className="w-4 h-4" />
-                  <span className="text-xs">OTP sent to {phone}</span>
+                  <span className="text-xs">
+                    OTP sent to your phone: {phone}
+                  </span>
                 </div>
-                {otpReceived && (
-                  <div className="bg-cta/10 border border-cta/30 rounded-lg p-3 text-center">
-                    <p className="text-cta text-xs mb-1">Demo OTP</p>
-                    <p className="text-cta font-black text-2xl tracking-widest">
-                      {otpReceived}
-                    </p>
-                  </div>
-                )}
                 <div className="space-y-1.5">
                   <Label htmlFor="otp-input">6-digit OTP</Label>
                   <Input

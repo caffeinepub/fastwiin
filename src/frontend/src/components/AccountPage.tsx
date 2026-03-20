@@ -36,7 +36,8 @@ import {
   Users,
   Wallet,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import type React from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 // ── Local deposit/withdrawal history helpers ──────────────────────────────────
@@ -173,6 +174,58 @@ export default function AccountPage({
 
   const [wthAmount, setWthAmount] = useState("");
   const [wthUpiId, setWthUpiId] = useState("");
+
+  // Bet history filters
+  const [betModeFilter, setBetModeFilter] = useState<
+    "all" | "30s" | "1min" | "3min"
+  >("all");
+  const [betDateFilter, setBetDateFilter] = useState<"today" | "week" | "all">(
+    "all",
+  );
+
+  // Withdrawal status change detection
+  const prevWithdrawRef = useRef<Record<string, string>>({});
+  useEffect(() => {
+    const currentStatuses: Record<string, string> = {};
+    for (const w of withdrawHistory) {
+      currentStatuses[w.id] = w.status;
+      const prev = prevWithdrawRef.current[w.id];
+      if (prev && prev !== w.status) {
+        if (w.status === "approved") {
+          toast.success(
+            `₹${w.amount.toLocaleString("en-IN")} निकासी स्वीकृत हुई! Your withdrawal of ₹${w.amount.toLocaleString("en-IN")} has been approved`,
+          );
+        } else if (w.status === "rejected") {
+          toast.error(
+            `₹${w.amount.toLocaleString("en-IN")} निकासी अस्वीकृत. Your withdrawal of ₹${w.amount.toLocaleString("en-IN")} has been rejected`,
+          );
+        }
+      }
+    }
+    prevWithdrawRef.current = currentStatuses;
+  }, [withdrawHistory]);
+
+  // Filtered bet history
+  const filteredBetHistory = useMemo(() => {
+    let result = betHistory;
+    if (betModeFilter !== "all") {
+      result = result.filter((b) => b.mode === betModeFilter);
+    }
+    if (betDateFilter !== "all") {
+      const now = Date.now();
+      const oneDayMs = 24 * 60 * 60 * 1000;
+      const oneWeekMs = 7 * oneDayMs;
+      result = result.filter((b) => {
+        // Try to parse date from b.date string
+        const ts = new Date(b.date).getTime();
+        if (Number.isNaN(ts)) return true;
+        if (betDateFilter === "today") return now - ts < oneDayMs;
+        if (betDateFilter === "week") return now - ts < oneWeekMs;
+        return true;
+      });
+    }
+    return result;
+  }, [betHistory, betModeFilter, betDateFilter]);
 
   const principalId = identity?.getPrincipal().toString() ?? null;
   const shortPrincipal = principalId
@@ -702,11 +755,70 @@ export default function AccountPage({
 
         {/* ── BETS TAB ────────────────────────────────────────────────────── */}
         <TabsContent value="bets" className="mt-0">
-          <div className="card-surface p-5">
-            <h3 className="text-xs font-black uppercase tracking-widest text-muted-foreground mb-3">
+          <div className="card-surface p-5 space-y-4">
+            <h3 className="text-xs font-black uppercase tracking-widest text-muted-foreground">
               {t("betHistory")}
             </h3>
-            {betHistory.length === 0 ? (
+
+            {/* Mode filter */}
+            <div className="flex gap-1 flex-wrap" data-ocid="bets.filter.tab">
+              {(["all", "30s", "1min", "3min"] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  data-ocid={`bets.${m}.tab`}
+                  onClick={() => setBetModeFilter(m)}
+                  className="text-[10px] font-bold px-2.5 py-1 rounded-full transition-all"
+                  style={{
+                    background:
+                      betModeFilter === m
+                        ? "oklch(0.98 0 0)"
+                        : "oklch(0.14 0 0)",
+                    color:
+                      betModeFilter === m
+                        ? "oklch(0.06 0 0)"
+                        : "oklch(0.55 0 0)",
+                    border: `1px solid ${betModeFilter === m ? "oklch(0.98 0 0)" : "oklch(0.22 0 0)"}`,
+                  }}
+                >
+                  {m === "all" ? t("allModes") : m.toUpperCase()}
+                </button>
+              ))}
+            </div>
+
+            {/* Date filter */}
+            <div className="flex gap-1 flex-wrap">
+              {(
+                [
+                  { key: "today", label: t("today") },
+                  { key: "week", label: t("thisWeek") },
+                  { key: "all", label: t("allTime2") },
+                ] as const
+              ).map(({ key, label }) => (
+                <button
+                  key={key}
+                  type="button"
+                  data-ocid={`bets.date.${key}.tab`}
+                  onClick={() => setBetDateFilter(key)}
+                  className="text-[10px] font-bold px-2.5 py-1 rounded-full transition-all"
+                  style={{
+                    background:
+                      betDateFilter === key
+                        ? "oklch(0.84 0.16 89)"
+                        : "oklch(0.14 0 0)",
+                    color:
+                      betDateFilter === key
+                        ? "oklch(0.06 0 0)"
+                        : "oklch(0.55 0 0)",
+                    border: `1px solid ${betDateFilter === key ? "oklch(0.84 0.16 89)" : "oklch(0.22 0 0)"}`,
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {filteredBetHistory.length === 0 ? (
               <p
                 className="text-xs text-muted-foreground text-center py-6"
                 data-ocid="bets.empty_state"
@@ -716,7 +828,7 @@ export default function AccountPage({
             ) : (
               <ScrollArea className="max-h-[500px]">
                 <div className="space-y-2">
-                  {betHistory.map((b, i) => (
+                  {filteredBetHistory.map((b, i) => (
                     <div
                       key={b.id}
                       data-ocid={`bets.item.${i + 1}`}

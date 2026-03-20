@@ -3,6 +3,7 @@ import AdminPanel from "@/components/AdminPanel";
 import AuthModal from "@/components/AuthModal";
 import BottomNav, { type TabKey } from "@/components/BottomNav";
 import DepositModal from "@/components/DepositModal";
+import FastwiinLogo from "@/components/FastwiinLogo";
 import GameModePage, { getTimeLeft } from "@/components/GameModePage";
 import Leaderboard from "@/components/Leaderboard";
 import NotificationPanel from "@/components/NotificationPanel";
@@ -182,10 +183,7 @@ function AppContent() {
             data-ocid="nav.home.link"
             className="flex-shrink-0"
           >
-            <span className="text-xl font-black tracking-tight">
-              <span className="text-foreground">Fast</span>
-              <span className="text-cta">wiin</span>
-            </span>
+            <FastwiinLogo size="sm" />
           </button>
           <div className="flex-1" />
           <div className="flex items-center gap-2">
@@ -529,10 +527,9 @@ function LandingHero({
           <div className="inline-flex items-center gap-2 bg-cta/10 border border-cta/30 text-cta text-xs px-3 py-1 rounded-full mb-6 font-medium">
             <Trophy className="w-3 h-3" /> Live 24/7 · India's #1
           </div>
-          <h1 className="text-5xl font-black tracking-tight mb-4">
-            <span className="text-foreground">Fast</span>
-            <span className="text-cta">wiin</span>
-          </h1>
+          <div className="mb-4 flex justify-center">
+            <FastwiinLogo size="lg" />
+          </div>
           <p className="text-base text-muted-foreground max-w-sm mx-auto mb-8">
             Color prediction games. 30-second rounds. Win up to 9× your bet.
           </p>
