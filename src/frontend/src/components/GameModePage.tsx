@@ -754,7 +754,7 @@ function GameHistoryTable({
                     className="text-[10px] font-mono"
                     style={{ color: "oklch(0.50 0 0)" }}
                   >
-                    ...{String(r.roundId).slice(-6)}
+                    {String(r.roundId)}
                   </span>
                   <div className="flex justify-center">
                     <div
@@ -842,7 +842,7 @@ function GameHistoryTable({
                     className="text-[10px] font-mono"
                     style={{ color: "oklch(0.50 0 0)" }}
                   >
-                    ...{b.roundId}
+                    {b.roundId}
                   </span>
                   <span
                     className="text-[10px] font-bold text-center truncate"
@@ -854,7 +854,7 @@ function GameHistoryTable({
                     className="text-[10px] font-mono text-center"
                     style={{ color: "oklch(0.65 0 0)" }}
                   >
-                    ₹{b.amount}
+                    ₹{Math.round(b.amount).toLocaleString("en-IN")}
                   </span>
                   <span
                     className="text-[10px] font-black text-right"
@@ -930,7 +930,7 @@ function ResultOverlay({
             </span>
           </p>
           <p className="text-xs capitalize" style={{ color: "oklch(0.6 0 0)" }}>
-            Round #{String(result.roundId).slice(-6)}
+            Round #{String(result.roundId)}
           </p>
         </div>
         <button
@@ -1046,11 +1046,11 @@ export default function GameModePage({
             refetchBalance();
             refetchGameState();
             addNotification(
-              `Round #${String(result.roundId).slice(-4)} result: ${Number(result.winningNumber)} (${result.winningColor})`,
+              `Round #${String(result.roundId)} result: ${Number(result.winningNumber)} (${result.winningColor})`,
               "result",
             );
             toast.info(
-              `${modeKey} • #${String(result.roundId).slice(-4)} • Number ${Number(result.winningNumber)} · ${result.winningColor}`,
+              `${modeKey} • #${String(result.roundId)} • Number ${Number(result.winningNumber)} · ${result.winningColor}`,
               { duration: 4000 },
             );
             const lastBet =
@@ -1117,7 +1117,7 @@ export default function GameModePage({
           ? `Color ${target.color.charAt(0).toUpperCase() + target.color.slice(1)}`
           : `#${target.number}`;
       const roundId = gameState?.currentRound?.roundId
-        ? String(gameState.currentRound.roundId).slice(-4)
+        ? String(gameState.currentRound.roundId)
         : "----";
       const fullPeriodId = gameState?.currentRound?.roundId
         ? String(gameState.currentRound.roundId)

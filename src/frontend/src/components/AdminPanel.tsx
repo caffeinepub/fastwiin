@@ -379,7 +379,8 @@ function WithdrawalsTab() {
 }
 
 function DepositsTab() {
-  const { data: deposits, isLoading } = useAllDeposits();
+  const { data: depositsRaw, isLoading } = useAllDeposits();
+  const deposits = depositsRaw as any[];
   const approve = useApproveDeposit();
   const reject = useRejectDeposit();
 

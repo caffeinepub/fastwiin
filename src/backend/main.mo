@@ -10,12 +10,12 @@ import Principal "mo:core/Principal";
 import Array "mo:core/Array";
 import Char "mo:core/Char";
 import Iter "mo:core/Iter";
-import Migration "migration";
+
 
 import MixinAuthorization "authorization/MixinAuthorization";
 import AccessControl "authorization/access-control";
 
-(with migration = Migration.run)
+
 actor {
   let accessControlState = AccessControl.initState();
   include MixinAuthorization(accessControlState);

@@ -141,6 +141,7 @@ function AppContent() {
   };
   const handleLogout = () => {
     localStorage.removeItem("fastwiin_logged_in");
+    queryClient.clear();
     setLoggedIn(false);
     setActiveTab("home");
   };
